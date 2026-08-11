@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment and secrets
+.env
+/backend/.env
+.env.*
+!.env.example
+
+# Frontend dependencies and builds
+node_modules/
+dist/
+build/
+.next/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated/runtime media data
+data/videos/*
+data/audio/*
+data/subtitles/*
+!data/videos/.gitkeep
+!data/audio/.gitkeep
+!data/subtitles/.gitkeep
+
+# test files
+*.wav
+*.mp4
+*.mov
+*.avi
