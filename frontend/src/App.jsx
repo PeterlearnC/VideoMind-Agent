@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
+import SummaryPanel from "./components/SummaryPanel";
 
 const API_ENDPOINT = "/api/generate-bilingual-subtitle";
 const DOWNLOAD_ENDPOINT = "/downloads/bilingual.srt";
@@ -128,6 +129,7 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
   const [subtitles, setSubtitles] = useState([]);
+  const [videoId, setVideoId] = useState("");
   const [status, setStatus] = useState("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState(null);
@@ -159,6 +161,7 @@ export default function App() {
       setFile(null);
       setResult(null);
       setSubtitles([]);
+      setVideoId("");
       setStatus("error");
       setErrorMessage("请选择 MP4 格式的视频文件。");
       return;
@@ -168,6 +171,7 @@ export default function App() {
       setFile(null);
       setResult(null);
       setSubtitles([]);
+      setVideoId("");
       setStatus("error");
       setErrorMessage("视频超过 2 GB，请选择更小的 MP4 文件。");
       return;
@@ -176,6 +180,7 @@ export default function App() {
     setFile(candidate);
     setResult(null);
     setSubtitles([]);
+    setVideoId("");
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
@@ -188,6 +193,7 @@ export default function App() {
     setFile(null);
     setResult(null);
     setSubtitles([]);
+    setVideoId("");
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
@@ -226,6 +232,7 @@ export default function App() {
       }
       const subtitlePayload = await subtitleResponse.json();
       setSubtitles(subtitlePayload.subtitles || []);
+      setVideoId(videoId);
       setResult({
         ...response,
         downloadUrl: DOWNLOAD_ENDPOINT + "?generated=" + Date.now(),
@@ -251,7 +258,7 @@ export default function App() {
           </span>
           <span>VideoMind</span>
         </a>
-        <span className="header-label">Bilingual subtitle studio</span>
+        <span className="header-label">AI video understanding studio</span>
         <span className="service-indicator">
           <span aria-hidden="true" />
           Local workflow
@@ -264,7 +271,7 @@ export default function App() {
           <ArrowIcon />
           <span>DeepSeek</span>
           <ArrowIcon />
-          <span>SRT</span>
+          <span>Summary</span>
         </div>
         <h1>
           一段视频，
@@ -273,7 +280,7 @@ export default function App() {
         </h1>
         <p className="hero-copy">
           上传英文 MP4，自动识别语音、生成时间轴并翻译为中文，
-          一次导出可直接使用的中英双语字幕。
+          同步生成可直接使用的双语字幕，并由 AI Agent 提炼结构化视频摘要。
         </p>
       </section>
 
@@ -352,6 +359,8 @@ export default function App() {
         subtitles={subtitles}
         title={file ? file.name : "视频预览"}
       />
+
+      <SummaryPanel videoId={videoId} />
 
       <footer>
         <span>VideoMind Agent</span>

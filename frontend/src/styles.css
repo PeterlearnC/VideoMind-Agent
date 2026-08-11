@@ -992,6 +992,206 @@ svg {
   font-size: 0.82rem;
 }
 
+.summary-panel {
+  max-width: 1280px;
+  margin: -2.5rem auto 6rem;
+  padding: clamp(1.4rem, 3vw, 2.5rem);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, rgba(217, 240, 127, 0.12), transparent 42%),
+    rgba(250, 249, 245, 0.9);
+  box-shadow: 0 22px 80px rgba(35, 45, 34, 0.07);
+}
+
+.summary-heading,
+.summary-heading > div,
+.summary-heading > div > div {
+  display: flex;
+}
+
+.summary-heading {
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.summary-heading > div {
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+.summary-heading > div > div {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.summary-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.45rem;
+  letter-spacing: -0.035em;
+}
+
+.summary-kicker {
+  color: var(--green);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.summary-generate {
+  min-width: 118px;
+  padding: 0.72rem 1.05rem;
+  border: 0;
+  border-radius: 2px;
+  background: var(--green-dark);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.summary-generate:hover:not(:disabled) {
+  background: #173b26;
+  transform: translateY(-1px);
+}
+
+.summary-generate:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.summary-placeholder,
+.summary-loading {
+  margin: 2rem 0 0 2.1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.summary-loading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.summary-loading .button-spinner {
+  border-color: rgba(41, 74, 53, 0.22);
+  border-top-color: var(--green-dark);
+}
+
+.summary-error {
+  margin-top: 1.5rem;
+}
+
+.summary-result {
+  margin-top: 2rem;
+  animation: result-enter 320ms ease-out;
+}
+
+.summary-result > header {
+  max-width: 880px;
+  padding-bottom: 1.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.summary-result h3 {
+  margin: 0 0 0.7rem;
+  color: var(--ink);
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: clamp(1.45rem, 3vw, 2.15rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.summary-result > header p {
+  margin: 0;
+  color: #555a52;
+  line-height: 1.8;
+}
+
+.summary-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  margin-top: 1.8rem;
+}
+
+.summary-columns h4 {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.summary-columns ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.summary-columns li::marker {
+  color: var(--green);
+}
+
+.summary-chapters {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-chapters li {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 0.9rem;
+}
+
+.summary-chapters time {
+  padding-top: 0.1rem;
+  color: var(--green);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.7rem;
+}
+
+.summary-chapters strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.summary-chapters p {
+  margin: 0.28rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.summary-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.8rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.summary-keywords span {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(78, 111, 86, 0.25);
+  border-radius: 999px;
+  background: rgba(217, 240, 127, 0.18);
+  color: var(--green-dark);
+  font-size: 0.68rem;
+}
+
 footer {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -1096,6 +1296,10 @@ footer > span:last-child {
   .subtitle-size {
     grid-column: 1 / -1;
   }
+
+  .summary-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1138,6 +1342,21 @@ footer > span:last-child {
     margin-top: -1.5rem;
     margin-bottom: 3rem;
     padding: 0.85rem;
+  }
+
+  .summary-panel {
+    margin-top: -1.5rem;
+    margin-bottom: 3rem;
+    padding: 1.1rem;
+  }
+
+  .summary-heading {
+    align-items: flex-end;
+  }
+
+  .summary-placeholder,
+  .summary-loading {
+    margin-left: 0;
   }
 
   .subtitle-track {
