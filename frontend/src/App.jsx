@@ -1,4 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
+
+import UploadPanel from "./components/UploadPanel";
+import VideoPlayer from "./components/VideoPlayer";
 
 const API_ENDPOINT = "/api/generate-bilingual-subtitle";
 const DOWNLOAD_ENDPOINT = "/downloads/bilingual.srt";
@@ -10,23 +13,6 @@ const PROCESS_STEPS = [
   { title: "双语翻译", detail: "生成自然的中文字幕" },
   { title: "导出字幕", detail: "写入标准 SRT 文件" },
 ];
-
-function UploadIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3.25A2.25 2.25 0 0 0 7.25 20h9.5A2.25 2.25 0 0 0 19 17.75V14.5" />
-    </svg>
-  );
-}
-
-function FilmIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-      <path d="M7 4.5v15M17 4.5v15M3 9h4m10 0h4M3 15h4m10 0h4" />
-    </svg>
-  );
-}
 
 function DownloadIcon() {
   return (
@@ -42,24 +28,6 @@ function ArrowIcon() {
       <path d="M5 12h14m0 0-5-5m5 5-5 5" />
     </svg>
   );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="m7 7 10 10M17 7 7 17" />
-    </svg>
-  );
-}
-
-function formatFileSize(bytes) {
-  if (bytes < 1024 * 1024) {
-    return (bytes / 1024).toFixed(1) + " KB";
-  }
-  if (bytes < 1024 * 1024 * 1024) {
-    return (bytes / 1024 / 1024).toFixed(1) + " MB";
-  }
-  return (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
 }
 
 function parseResponse(xhr) {
@@ -157,15 +125,26 @@ function StatusTimeline({ status, uploadProgress }) {
 }
 
 export default function App() {
-  const inputRef = useRef(null);
   const [file, setFile] = useState(null);
-  const [dragging, setDragging] = useState(false);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [subtitles, setSubtitles] = useState([]);
   const [status, setStatus] = useState("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const busy = status === "uploading" || status === "processing";
+
+  useEffect(() => {
+    if (!file) {
+      setVideoUrl("");
+      return undefined;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setVideoUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
 
   function selectFile(candidate) {
     if (!candidate || busy) {
@@ -179,6 +158,7 @@ export default function App() {
     if (!isMp4) {
       setFile(null);
       setResult(null);
+      setSubtitles([]);
       setStatus("error");
       setErrorMessage("请选择 MP4 格式的视频文件。");
       return;
@@ -187,6 +167,7 @@ export default function App() {
     if (candidate.size > MAX_FILE_SIZE) {
       setFile(null);
       setResult(null);
+      setSubtitles([]);
       setStatus("error");
       setErrorMessage("视频超过 2 GB，请选择更小的 MP4 文件。");
       return;
@@ -194,15 +175,10 @@ export default function App() {
 
     setFile(candidate);
     setResult(null);
+    setSubtitles([]);
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
-  }
-
-  function handleDrop(event) {
-    event.preventDefault();
-    setDragging(false);
-    selectFile(event.dataTransfer.files?.[0]);
   }
 
   function clearFile() {
@@ -211,12 +187,10 @@ export default function App() {
     }
     setFile(null);
     setResult(null);
+    setSubtitles([]);
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
-    if (inputRef.current) {
-      inputRef.current.value = "";
-    }
   }
 
   async function handleSubmit(event) {
@@ -238,6 +212,20 @@ export default function App() {
           setStatus("processing");
         },
       });
+      const videoId = response.subtitle_file
+        .split("/")
+        .pop()
+        .replace(/\.srt$/i, "");
+      const subtitleResponse = await fetch(
+        `/api/subtitle/${encodeURIComponent(videoId)}`,
+        { cache: "no-store" },
+      );
+      if (!subtitleResponse.ok) {
+        const payload = await subtitleResponse.json().catch(() => null);
+        throw new Error(payload?.detail || "无法加载生成的字幕。");
+      }
+      const subtitlePayload = await subtitleResponse.json();
+      setSubtitles(subtitlePayload.subtitles || []);
       setResult({
         ...response,
         downloadUrl: DOWNLOAD_ENDPOINT + "?generated=" + Date.now(),
@@ -290,105 +278,16 @@ export default function App() {
       </section>
 
       <section className="workspace" aria-label="字幕生成工作区">
-        <form className="upload-panel" onSubmit={handleSubmit}>
-          <div className="panel-heading">
-            <div>
-              <span className="section-number">01</span>
-              <h2>选择视频</h2>
-            </div>
-            <span className="file-rule">MP4 · 最大 2 GB</span>
-          </div>
-
-          {!file ? (
-            <button
-              className={"dropzone " + (dragging ? "is-dragging" : "")}
-              type="button"
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) {
-                  setDragging(false);
-                }
-              }}
-              onDrop={handleDrop}
-            >
-              <span className="upload-icon">
-                <UploadIcon />
-              </span>
-              <span className="dropzone-title">拖放视频到这里</span>
-              <span className="dropzone-copy">或点击浏览本地文件</span>
-              <span className="browse-label">选择 MP4</span>
-            </button>
-          ) : (
-            <div className="selected-file">
-              <span className="file-icon">
-                <FilmIcon />
-              </span>
-              <span className="file-information">
-                <strong>{file.name}</strong>
-                <span>{formatFileSize(file.size)} · MP4 video</span>
-              </span>
-              <button
-                className="remove-file"
-                type="button"
-                onClick={clearFile}
-                disabled={busy}
-                aria-label="移除视频"
-              >
-                <CloseIcon />
-              </button>
-              {busy && (
-                <span
-                  className="upload-progress"
-                  style={{ "--progress": uploadProgress + "%" }}
-                  aria-hidden="true"
-                />
-              )}
-            </div>
-          )}
-
-          <input
-            ref={inputRef}
-            className="visually-hidden"
-            type="file"
-            accept="video/mp4,.mp4"
-            onChange={(event) => {
-              selectFile(event.target.files?.[0]);
-              event.target.value = "";
-            }}
-          />
-
-          <button
-            className="generate-button"
-            type="submit"
-            disabled={!file || busy}
-          >
-            <span>
-              {status === "uploading"
-                ? "正在上传 " + uploadProgress + "%"
-                : status === "processing"
-                  ? "正在生成双语字幕"
-                  : "开始生成字幕"}
-            </span>
-            {busy ? (
-              <span className="button-spinner" aria-hidden="true" />
-            ) : (
-              <ArrowIcon />
-            )}
-          </button>
-
-          {status === "error" && (
-            <div className="error-message" role="alert">
-              <span aria-hidden="true">!</span>
-              <p>{errorMessage}</p>
-            </div>
-          )}
-        </form>
+        <UploadPanel
+          file={file}
+          busy={busy}
+          status={status}
+          uploadProgress={uploadProgress}
+          errorMessage={errorMessage}
+          onSelectFile={selectFile}
+          onClearFile={clearFile}
+          onSubmit={handleSubmit}
+        />
 
         <aside className="process-panel">
           <div className="panel-heading">
@@ -447,6 +346,12 @@ export default function App() {
           )}
         </aside>
       </section>
+
+      <VideoPlayer
+        src={videoUrl}
+        subtitles={subtitles}
+        title={file ? file.name : "视频预览"}
+      />
 
       <footer>
         <span>VideoMind Agent</span>
