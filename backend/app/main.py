@@ -13,7 +13,7 @@ from app.api.video import router as video_router
 app = FastAPI(
     title="VideoMind-Agent",
     description="AI video understanding agent API.",
-    version="0.5.0",
+    version="0.5.1",
 )
 
 # Register video upload, transcription, and subtitle generation endpoints.

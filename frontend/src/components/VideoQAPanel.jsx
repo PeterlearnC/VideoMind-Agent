@@ -1,23 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function VideoQAPanel({ videoId, onSeekToTime }) {
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState("idle");
-  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const activeVideoIdRef = useRef(videoId);
+  const requestVersionRef = useRef(0);
+  const nextTurnIdRef = useRef(1);
+
+  activeVideoIdRef.current = videoId;
 
   useEffect(() => {
     setQuestion("");
     setStatus("idle");
-    setResult(null);
+    setHistory([]);
     setErrorMessage("");
+    requestVersionRef.current += 1;
+    nextTurnIdRef.current = 1;
   }, [videoId]);
+
+  function clearHistory() {
+    setHistory([]);
+    setStatus("idle");
+    setErrorMessage("");
+    requestVersionRef.current += 1;
+    nextTurnIdRef.current = 1;
+  }
 
   async function submitQuestion(event) {
     event.preventDefault();
     const normalizedQuestion = question.trim();
     if (!videoId || !normalizedQuestion || status === "loading") return;
 
+    const requestedVideoId = videoId;
+    const requestVersion = requestVersionRef.current;
     setStatus("loading");
     setErrorMessage("");
 
@@ -31,9 +48,32 @@ export default function VideoQAPanel({ videoId, onSeekToTime }) {
       if (!response.ok) {
         throw new Error(payload?.detail || "视频问答请求失败。");
       }
-      setResult(payload);
+      if (
+        activeVideoIdRef.current !== requestedVideoId ||
+        requestVersionRef.current !== requestVersion
+      ) {
+        return;
+      }
+      const turnId = nextTurnIdRef.current;
+      nextTurnIdRef.current += 1;
+      setHistory((previousHistory) => [
+        ...previousHistory,
+        {
+          id: turnId,
+          question: normalizedQuestion,
+          answer: payload.answer,
+          references: payload.references || [],
+        },
+      ]);
+      setQuestion("");
       setStatus("success");
     } catch (error) {
+      if (
+        activeVideoIdRef.current !== requestedVideoId ||
+        requestVersionRef.current !== requestVersion
+      ) {
+        return;
+      }
       setStatus("error");
       setErrorMessage(error.message || "视频问答失败，请稍后重试。");
     }
@@ -51,6 +91,11 @@ export default function VideoQAPanel({ videoId, onSeekToTime }) {
             <h2 id="qa-title">AI 视频问答</h2>
           </div>
         </div>
+        {history.length > 0 && (
+          <button className="qa-clear" type="button" onClick={clearHistory}>
+            清空问答
+          </button>
+        )}
       </div>
 
       <form className="qa-form" onSubmit={submitQuestion}>
@@ -86,32 +131,42 @@ export default function VideoQAPanel({ videoId, onSeekToTime }) {
           <p>{errorMessage}</p>
         </div>
       )}
-      {result && status === "success" && (
-        <article className="qa-result" aria-live="polite">
-          <div className="qa-answer">
-            <h3>AI 回答</h3>
-            <p>{result.answer}</p>
-          </div>
-          {result.references.length > 0 && (
-            <div className="qa-references">
-              <h3>相关视频片段</h3>
-              <ol>
-                {result.references.map((reference, index) => (
-                  <li key={`${index}-${reference.start}`}>
-                    <button
-                      type="button"
-                      onClick={() => onSeekToTime?.(reference.start)}
-                      aria-label={`跳转到 ${reference.timestamp}`}
-                    >
-                      <time>{reference.timestamp}</time>
-                    </button>
-                    <p>{reference.text}</p>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-        </article>
+      {history.length > 0 && (
+        <div className="qa-history" aria-live="polite" aria-label="问答历史">
+          {history.map((turn, turnIndex) => (
+            <article className="qa-turn" key={turn.id}>
+              <div className="qa-question">
+                <span>问题 {String(turnIndex + 1).padStart(2, "0")}</span>
+                <p>{turn.question}</p>
+              </div>
+              <div className="qa-result">
+                <div className="qa-answer">
+                  <h3>AI 回答</h3>
+                  <p>{turn.answer}</p>
+                </div>
+                {turn.references.length > 0 && (
+                  <div className="qa-references">
+                    <h3>相关视频片段</h3>
+                    <ol>
+                      {turn.references.map((reference, index) => (
+                        <li key={`${index}-${reference.start}`}>
+                          <button
+                            type="button"
+                            onClick={() => onSeekToTime?.(reference.start)}
+                            aria-label={`跳转到 ${reference.timestamp}`}
+                          >
+                            <time>{reference.timestamp}</time>
+                          </button>
+                          <p>{reference.text}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
       )}
     </section>
   );
