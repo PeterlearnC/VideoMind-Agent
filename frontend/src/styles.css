@@ -769,6 +769,10 @@ svg {
   box-shadow: 0 22px 80px rgba(35, 45, 34, 0.07);
 }
 
+.player-scroll-target {
+  scroll-margin-top: 1.5rem;
+}
+
 .player-heading,
 .player-heading > div {
   display: flex;
@@ -1153,13 +1157,49 @@ svg {
   display: grid;
   grid-template-columns: 68px 1fr;
   gap: 0.9rem;
+  padding: 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease;
 }
 
-.summary-chapters time {
-  padding-top: 0.1rem;
+.summary-chapters li.is-current {
+  border-color: rgba(78, 111, 86, 0.28);
+  background: rgba(217, 240, 127, 0.16);
+}
+
+.chapter-timestamp {
+  align-self: start;
+  padding: 0.28rem 0.35rem;
+  border: 0;
+  border-radius: 2px;
   color: var(--green);
+  background: transparent;
+  cursor: pointer;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 0.7rem;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.chapter-timestamp:hover {
+  color: #fff;
+  background: var(--green-dark);
+  transform: translateY(-1px);
+}
+
+.chapter-timestamp:focus-visible {
+  outline: 3px solid rgba(78, 111, 86, 0.28);
+  outline-offset: 2px;
+}
+
+.is-current .chapter-timestamp {
+  color: var(--green-dark);
+  background: var(--lime);
 }
 
 .summary-chapters strong {

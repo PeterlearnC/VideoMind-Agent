@@ -28,6 +28,7 @@ class SummaryChapter(BaseModel):
 
     start: float = Field(ge=0)
     end: float = Field(ge=0)
+    timestamp: str
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
 
@@ -36,6 +37,45 @@ class SummaryChapter(BaseModel):
         if self.end < self.start:
             raise ValueError("Chapter end must not precede chapter start.")
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_timestamps(cls, data: object) -> object:
+        """Accept legacy timestamp-only chapters while exposing numeric seconds."""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        if "start" not in normalized and normalized.get("timestamp"):
+            normalized["start"] = _parse_timestamp(normalized["timestamp"])
+        if "end" not in normalized and "start" in normalized:
+            normalized["end"] = normalized["start"]
+        if "timestamp" not in normalized and "start" in normalized:
+            normalized["timestamp"] = _format_timestamp(normalized["start"])
+        return normalized
+
+
+def _parse_timestamp(value: object) -> float:
+    parts = str(value).strip().split(":")
+    if not 1 <= len(parts) <= 3:
+        raise ValueError("Chapter timestamp must use SS, MM:SS, or HH:MM:SS format.")
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError("Chapter timestamp contains a non-numeric value.") from exc
+    if any(number < 0 for number in numbers):
+        raise ValueError("Chapter timestamp must not be negative.")
+    seconds = 0.0
+    for number in numbers:
+        seconds = seconds * 60 + number
+    return seconds
+
+
+def _format_timestamp(value: object) -> str:
+    total_seconds = max(0, int(float(value)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 class VideoSummary(BaseModel):
@@ -82,4 +122,3 @@ async def generate_video_summary(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"DeepSeek returned an invalid summary structure: {exc}",
         ) from exc
-

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
@@ -134,8 +134,22 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [seekRequest, setSeekRequest] = useState(null);
+  const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
+  const playerRegionRef = useRef(null);
 
   const busy = status === "uploading" || status === "processing";
+
+  function handleSeekToTime(startSeconds) {
+    const targetTime = Number(startSeconds);
+    if (!Number.isFinite(targetTime) || targetTime < 0) return;
+
+    setSeekRequest({ targetTime, requestedAt: Date.now() });
+    playerRegionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 
   useEffect(() => {
     if (!file) {
@@ -354,13 +368,21 @@ export default function App() {
         </aside>
       </section>
 
-      <VideoPlayer
-        src={videoUrl}
-        subtitles={subtitles}
-        title={file ? file.name : "视频预览"}
-      />
+      <div ref={playerRegionRef} className="player-scroll-target">
+        <VideoPlayer
+          src={videoUrl}
+          subtitles={subtitles}
+          title={file ? file.name : "视频预览"}
+          seekRequest={seekRequest}
+          onTimeChange={setPlayerCurrentTime}
+        />
+      </div>
 
-      <SummaryPanel videoId={videoId} />
+      <SummaryPanel
+        videoId={videoId}
+        currentTime={playerCurrentTime}
+        onSeekToTime={handleSeekToTime}
+      />
 
       <footer>
         <span>VideoMind Agent</span>

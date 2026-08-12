@@ -89,7 +89,35 @@ class VideoSummaryApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.video_id, "demo")
         self.assertEqual(result.title, SUMMARY_RESULT["title"])
+        self.assertEqual(result.chapters[0].start, 0)
+        self.assertEqual(result.chapters[0].timestamp, "00:00:00")
         agent.summarize.assert_called_once_with(cues, "zh")
+
+    @patch("app.api.summary.get_subtitle", new_callable=AsyncMock)
+    async def test_api_adds_numeric_start_to_legacy_timestamp_chapter(
+        self, get_subtitle: AsyncMock
+    ) -> None:
+        get_subtitle.return_value = {"video_id": "demo", "subtitles": []}
+        legacy_result = {
+            **SUMMARY_RESULT,
+            "chapters": [
+                {
+                    "timestamp": "01:02",
+                    "title": "兼容章节",
+                    "summary": "旧格式仍然可以使用。",
+                }
+            ],
+        }
+        agent = Mock()
+        agent.summarize.return_value = legacy_result
+
+        with patch("app.api.summary._get_summary_agent", return_value=agent):
+            result = await generate_video_summary("demo", SummaryRequest())
+
+        chapter = result.chapters[0]
+        self.assertEqual(chapter.start, 62)
+        self.assertEqual(chapter.end, 62)
+        self.assertEqual(chapter.timestamp, "01:02")
 
     def test_summary_route_is_registered(self) -> None:
         self.assertIn("/summary/{video_id}", app.openapi()["paths"])

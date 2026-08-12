@@ -1,9 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import SubtitleControl from "./SubtitleControl";
 import SubtitleTrack from "./SubtitleTrack";
 
-export default function VideoPlayer({ src, subtitles = [], title = "视频预览" }) {
+export default function VideoPlayer({
+  src,
+  subtitles = [],
+  title = "视频预览",
+  seekRequest = null,
+  onTimeChange,
+}) {
+  const videoRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [displayMode, setDisplayMode] = useState("bilingual");
@@ -11,7 +18,27 @@ export default function VideoPlayer({ src, subtitles = [], title = "视频预览
 
   useEffect(() => {
     setCurrentTime(0);
+    onTimeChange?.(0);
   }, [src]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !seekRequest) return;
+
+    video.currentTime = seekRequest.targetTime;
+    setCurrentTime(seekRequest.targetTime);
+    onTimeChange?.(seekRequest.targetTime);
+    const playPromise = video.play();
+    playPromise?.catch(() => {
+      // Browsers may still block scripted playback; the seek itself remains valid.
+    });
+  }, [seekRequest]);
+
+  function handleTimeChange(event) {
+    const nextTime = event.currentTarget.currentTime;
+    setCurrentTime(nextTime);
+    onTimeChange?.(nextTime);
+  }
 
   if (!src) {
     return null;
@@ -28,14 +55,15 @@ export default function VideoPlayer({ src, subtitles = [], title = "视频预览
       </div>
       <div className="video-frame">
         <video
+          ref={videoRef}
           key={src}
           className="video-player"
           src={src}
           controls
           playsInline
           preload="metadata"
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-          onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onTimeUpdate={handleTimeChange}
+          onSeeked={handleTimeChange}
         >
           你的浏览器不支持 HTML5 视频播放。
         </video>

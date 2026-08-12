@@ -10,7 +10,11 @@ function formatTimestamp(seconds) {
     .join(":");
 }
 
-export default function SummaryPanel({ videoId }) {
+export default function SummaryPanel({
+  videoId,
+  currentTime = 0,
+  onSeekToTime,
+}) {
   const [status, setStatus] = useState("idle");
   const [summary, setSummary] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -101,15 +105,34 @@ export default function SummaryPanel({ videoId }) {
             <section>
               <h4>内容章节</h4>
               <ol className="summary-chapters">
-                {summary.chapters.map((chapter, index) => (
-                  <li key={`${index}-${chapter.start}`}>
-                    <time>{formatTimestamp(chapter.start)}</time>
-                    <div>
-                      <strong>{chapter.title}</strong>
-                      <p>{chapter.summary}</p>
-                    </div>
-                  </li>
-                ))}
+                {summary.chapters.map((chapter, index) => {
+                  const start = Number(chapter.start) || 0;
+                  const nextStart = Number(summary.chapters[index + 1]?.start);
+                  const isCurrent =
+                    currentTime >= start &&
+                    (!Number.isFinite(nextStart) || currentTime < nextStart);
+
+                  return (
+                    <li
+                      className={isCurrent ? "is-current" : undefined}
+                      key={`${index}-${start}`}
+                    >
+                      <button
+                        className="chapter-timestamp"
+                        type="button"
+                        onClick={() => onSeekToTime?.(start)}
+                        aria-label={`跳转到 ${chapter.timestamp || formatTimestamp(start)}：${chapter.title}`}
+                        aria-current={isCurrent ? "true" : undefined}
+                      >
+                        <time>{chapter.timestamp || formatTimestamp(start)}</time>
+                      </button>
+                      <div>
+                        <strong>{chapter.title}</strong>
+                        <p>{chapter.summary}</p>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           </div>
