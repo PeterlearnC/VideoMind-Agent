@@ -46,3 +46,6 @@ data/subtitles/*
 *.mp4
 *.mov
 *.avi
+# Local debugging files
+correction-result*.json
+test_correction.py
