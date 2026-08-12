@@ -23,9 +23,14 @@ QA_RESULT = {
     ],
 }
 
+MODEL_QA_RESULT = {
+    "answer": QA_RESULT["answer"],
+    "references": [{"cue_id": 0, "text": QA_RESULT["references"][0]["text"]}],
+}
+
 
 class FakeResponse:
-    def __init__(self, result: object = QA_RESULT) -> None:
+    def __init__(self, result: object = MODEL_QA_RESULT) -> None:
         self.result = result
 
     def raise_for_status(self) -> None:
@@ -40,7 +45,7 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, result: object = QA_RESULT) -> None:
+    def __init__(self, result: object = MODEL_QA_RESULT) -> None:
         self.result = result
         self.requests: list[dict[str, object]] = []
 
@@ -64,13 +69,27 @@ class VideoQAAgentTests(unittest.TestCase):
 
         result = agent.answer("demo", "什么时候介绍刹车系统？", cues)
 
-        self.assertEqual(result, QA_RESULT)
+        self.assertEqual(result, MODEL_QA_RESULT)
         request = session.requests[0]
         self.assertEqual(request["url"], VideoQAAgent.API_URL)
         prompt = request["json"]["messages"][1]["content"]
         self.assertIn("Video ID: demo", prompt)
-        self.assertIn("start=11", prompt)
+        self.assertIn("cue_id=0", prompt)
         self.assertIn("液压制动系统", prompt)
+
+    def test_prefers_corrected_transcript(self) -> None:
+        session = FakeSession()
+        agent = VideoQAAgent(api_key="test-key", session=session)
+
+        agent.answer(
+            "demo",
+            "What is said?",
+            [{"id": 3, "start": 2, "raw_text": "wrong", "corrected_text": "correct"}],
+        )
+
+        prompt = session.requests[0]["json"]["messages"][1]["content"]
+        self.assertIn("correct", prompt)
+        self.assertNotIn("wrong", prompt)
 
 
 class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
@@ -78,10 +97,10 @@ class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_structured_answer_with_numeric_start(
         self, get_subtitle: AsyncMock
     ) -> None:
-        cues = [{"start": 11.0, "end": 15.0, "source": "Brakes"}]
+        cues = [{"id": 0, "start": 11.0, "end": 15.0, "source": "Brakes"}]
         get_subtitle.return_value = {"video_id": "demo", "subtitles": cues}
         agent = Mock()
-        agent.answer.return_value = QA_RESULT
+        agent.answer.return_value = MODEL_QA_RESULT
 
         with patch("app.api.qa._get_qa_agent", return_value=agent):
             result = await answer_video_question(
@@ -139,7 +158,7 @@ class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
         agent = Mock()
         agent.answer.return_value = {
             "answer": "有答案",
-            "references": [{"timestamp": "00:01", "text": "缺少 start"}],
+            "references": [{"text": "缺少 cue_id"}],
         }
 
         with patch("app.api.qa._get_qa_agent", return_value=agent):
@@ -157,12 +176,12 @@ class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         get_subtitle.return_value = {
             "video_id": "demo",
-            "subtitles": [{"start": 11.0, "end": 15.0, "source": "Brakes"}],
+            "subtitles": [{"id": 0, "start": 11.0, "end": 15.0, "source": "Brakes"}],
         }
         agent = Mock()
         agent.answer.return_value = {
-            **QA_RESULT,
-            "references": [{**QA_RESULT["references"][0], "start": 99.0}],
+            **MODEL_QA_RESULT,
+            "references": [{"cue_id": 99, "text": "错误引用"}],
         }
 
         with patch("app.api.qa._get_qa_agent", return_value=agent):
@@ -172,7 +191,7 @@ class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(raised.exception.status_code, 502)
-        self.assertIn("does not match a subtitle cue", raised.exception.detail)
+        self.assertIn("was not found", raised.exception.detail)
 
     def test_qa_route_is_registered(self) -> None:
         self.assertIn("/qa/{video_id}", app.openapi()["paths"])

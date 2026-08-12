@@ -1,8 +1,4 @@
-const DISPLAY_MODES = [
-  { value: "bilingual", label: "双语" },
-  { value: "source", label: "English" },
-  { value: "translation", label: "中文" },
-];
+import { languageLabel } from "../languages";
 
 export default function SubtitleControl({
   enabled,
@@ -12,7 +8,17 @@ export default function SubtitleControl({
   onEnabledChange,
   onDisplayModeChange,
   onFontSizeChange,
+  sourceLanguage,
+  targetLanguage,
 }) {
+  const monolingual = sourceLanguage === targetLanguage;
+  const displayModes = monolingual
+    ? [{ value: "source", label: languageLabel(sourceLanguage) }]
+    : [
+        { value: "bilingual", label: "双语" },
+        { value: "source", label: languageLabel(sourceLanguage) },
+        { value: "translation", label: languageLabel(targetLanguage) },
+      ];
   return (
     <div className="subtitle-control" aria-label="字幕控制面板">
       <label className="subtitle-switch">
@@ -32,7 +38,7 @@ export default function SubtitleControl({
       <fieldset className="subtitle-mode" disabled={disabled || !enabled}>
         <legend>显示语言</legend>
         <div>
-          {DISPLAY_MODES.map((mode) => (
+          {displayModes.map((mode) => (
             <button
               key={mode.value}
               type="button"

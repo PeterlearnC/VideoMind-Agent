@@ -1,5 +1,6 @@
 """API for reading generated subtitle tracks as JSON."""
 
+import json
 import re
 from pathlib import Path
 
@@ -50,6 +51,8 @@ def parse_srt(content: str) -> list[dict[str, object]]:
                 "end": _timestamp_to_seconds(end_text),
                 "source": text_lines[0] if text_lines else "",
                 "translation": "\n".join(text_lines[1:]),
+                "source_text": text_lines[0] if text_lines else "",
+                "translated_text": "\n".join(text_lines[1:]),
             }
         )
     return cues
@@ -72,11 +75,23 @@ async def get_subtitle(video_id: str) -> dict[str, object]:
         )
 
     try:
-        subtitles = parse_srt(subtitle_path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, ValueError) as exc:
+        structured_path = subtitle_path.with_suffix(".json")
+        if structured_path.is_file():
+            structured = json.loads(structured_path.read_text(encoding="utf-8"))
+            subtitles = structured["subtitles"]
+        else:
+            structured = {}
+            subtitles = parse_srt(subtitle_path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, KeyError, OSError, UnicodeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read subtitle track: {exc}",
         ) from exc
 
-    return {"video_id": video_id, "subtitles": subtitles}
+    return {
+        "video_id": video_id,
+        "source_language": structured.get("source_language"),
+        "target_language": structured.get("target_language"),
+        "correction": structured.get("correction"),
+        "subtitles": subtitles,
+    }

@@ -1,0 +1,40 @@
+{
+  "raw": [
+    {
+      "id": 0,
+      "text": "水泥的售命只有50年"
+    },
+    {
+      "id": 1,
+      "text": "这完全就是两马事儿啊"
+    },
+    {
+      "id": 2,
+      "text": "工程师会在房子的横量楼板"
+    }
+  ],
+  "corrected": [
+    {
+      "id": 0,
+      "corrected_text": "水泥的寿命只有50年"
+    },
+    {
+      "id": 1,
+      "corrected_text": "这完全就是两码事儿啊"
+    },
+    {
+      "id": 2,
+      "corrected_text": "工程师会在房子的横梁楼板"
+    }
+  ],
+  "enabled": true,
+  "attempted": true,
+  "success": true,
+  "fallback": false,
+  "changed_segments": 3,
+  "total_segments": 3,
+  "batches": 1,
+  "failed_batches": 0,
+  "zero_change_warning": false,
+  "error": null
+}

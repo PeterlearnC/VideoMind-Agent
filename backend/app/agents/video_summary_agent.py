@@ -6,6 +6,7 @@ from typing import Any, Iterable, Mapping
 
 import requests
 
+from app.config.languages import language_name, require_supported_language
 from app.services.translation_service import DEEPSEEK_KEY_PLACEHOLDERS
 
 
@@ -55,7 +56,8 @@ class VideoSummaryAgent:
             raise SummaryAgentError("The subtitle track contains no content.")
 
         transcript = "\n".join(self._format_cue(cue) for cue in cue_items)
-        language_name = "Simplified Chinese" if output_language == "zh" else "English"
+        output_language = require_supported_language(output_language, "summary")
+        output_language_name = language_name(output_language)
         payload = {
             "model": self.MODEL,
             "response_format": {"type": "json_object"},
@@ -65,7 +67,7 @@ class VideoSummaryAgent:
                     "content": (
                         "You are a video understanding agent. Analyze only the "
                         "provided timestamped transcript; do not invent facts. "
-                        f"Write all output in {language_name}. Return one JSON "
+                        f"Write all output in {output_language_name}. Return one JSON "
                         "object with exactly these fields: title (string), overview "
                         "(string), key_points (array of strings), chapters (array "
                         "of objects with numeric start, numeric end, string title, "
@@ -105,8 +107,12 @@ class VideoSummaryAgent:
         minutes, seconds = divmod(int(start), 60)
         hours, minutes = divmod(minutes, 60)
         timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        source = str(cue.get("source", "")).strip()
-        translation = str(cue.get("translation", "")).strip()
+        source = str(
+            cue.get("corrected_text", cue.get("source_text", cue.get("source", "")))
+        ).strip()
+        translation = str(
+            cue.get("translated_text", cue.get("translation", ""))
+        ).strip()
         text = source or translation
         if source and translation:
             text = f"{source} / {translation}"
@@ -124,4 +130,3 @@ class VideoSummaryAgent:
         if not isinstance(result, dict):
             raise ValueError("DeepSeek returned a non-object summary.")
         return result
-

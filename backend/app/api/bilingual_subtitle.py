@@ -1,9 +1,14 @@
-"""API for generating Chinese-English subtitles from an English video."""
+"""API for generating translated bilingual subtitles from a video."""
 
 import asyncio
+from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
+from app.config.languages import (
+    default_target_language,
+    require_supported_language,
+)
 from app.api.video import PROJECT_ROOT, SUBTITLE_DIR, transcribe_video
 from app.services.bilingual_subtitle_service import generate_bilingual_subtitle
 from app.services.translation_service import (
@@ -15,37 +20,32 @@ from app.services.translation_service import (
 router = APIRouter(tags=["subtitle"])
 
 BILINGUAL_SUBTITLE_PATH = SUBTITLE_DIR / "bilingual.srt"
-TARGET_LANGUAGE = "zh"
-
-
-def _is_english(language: str) -> bool:
-    normalized = language.strip().lower().replace("_", "-")
-    return normalized == "english" or normalized.split("-", 1)[0] == "en"
-
-
 @router.post("/generate-bilingual-subtitle")
 async def generate_bilingual_subtitle_api(
     file: UploadFile = File(...),
+    target_language: Annotated[str | None, Form()] = None,
 ) -> dict[str, str]:
-    """Transcribe an English video, translate it, and create bilingual.srt."""
+    """Detect, transcribe, translate, and create a bilingual SRT."""
     transcription = await transcribe_video(file)
-    language = str(transcription["language"])
-    if not _is_english(language):
+    try:
+        source_language = require_supported_language(
+            transcription["language"], "source"
+        )
+        resolved_target = require_supported_language(
+            target_language or default_target_language(source_language), "target"
+        )
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "Bilingual subtitle generation currently requires an English "
-                f"video; Whisper detected {language!r}."
-            ),
-        )
-
+            detail=str(exc),
+        ) from exc
     try:
         subtitle_path = await asyncio.to_thread(
             generate_bilingual_subtitle,
             transcription["segments"],
-            language,
+            source_language,
             BILINGUAL_SUBTITLE_PATH,
-            TARGET_LANGUAGE,
+            resolved_target,
         )
     except TranslationConfigurationError as exc:
         raise HTTPException(
@@ -65,6 +65,8 @@ async def generate_bilingual_subtitle_api(
 
     return {
         "filename": transcription["filename"],
-        "language": language,
+        "language": source_language,
+        "source_language": source_language,
+        "target_language": resolved_target,
         "subtitle_file": subtitle_path.relative_to(PROJECT_ROOT).as_posix(),
     }

@@ -46,6 +46,20 @@ class VideoQAResponse(BaseModel):
     references: list[VideoQAReference]
 
 
+class VideoQAModelReference(BaseModel):
+    """A model-selected cue; timing is resolved by the server."""
+
+    cue_id: str | int
+    text: str = Field(min_length=1)
+
+
+class VideoQAModelResponse(BaseModel):
+    """Internal DeepSeek result without model-authored timestamps."""
+
+    answer: str = Field(min_length=1)
+    references: list[VideoQAModelReference]
+
+
 def _get_qa_agent() -> VideoQAAgent:
     return VideoQAAgent()
 
@@ -59,18 +73,33 @@ def _format_timestamp(start: float) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 
-def _validate_and_normalize_references(
-    response: VideoQAResponse,
+def _build_response_from_cues(
+    video_id: str,
+    result: object,
     cues: list[dict[str, object]],
 ) -> VideoQAResponse:
-    cue_starts = [float(cue["start"]) for cue in cues]
-    for reference in response.references:
-        if not any(abs(reference.start - cue_start) < 0.001 for cue_start in cue_starts):
-            raise ValueError(
-                f"Reference start {reference.start} does not match a subtitle cue."
+    model_response = VideoQAModelResponse.model_validate(result)
+    cues_by_id = {
+        str(cue.get("id", index)): cue for index, cue in enumerate(cues)
+    }
+    references: list[VideoQAReference] = []
+    for model_reference in model_response.references:
+        cue_id = str(model_reference.cue_id)
+        if cue_id not in cues_by_id:
+            raise ValueError(f"Reference cue_id {cue_id!r} was not found.")
+        start = float(cues_by_id[cue_id]["start"])
+        references.append(
+            VideoQAReference(
+                timestamp=_format_timestamp(start),
+                start=start,
+                text=model_reference.text,
             )
-        reference.timestamp = _format_timestamp(reference.start)
-    return response
+        )
+    return VideoQAResponse(
+        video_id=video_id,
+        answer=model_response.answer,
+        references=references,
+    )
 
 
 @router.post("/qa/{video_id}", response_model=VideoQAResponse)
@@ -94,8 +123,7 @@ async def answer_video_question(
             request.question,
             cues,
         )
-        response = VideoQAResponse(video_id=video_id, **result)
-        return _validate_and_normalize_references(response, cues)
+        return _build_response_from_cues(video_id, result, cues)
     except VideoQAAgentConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

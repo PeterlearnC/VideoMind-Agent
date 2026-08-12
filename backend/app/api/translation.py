@@ -2,7 +2,7 @@
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.services.translation_service import (
@@ -10,12 +10,10 @@ from app.services.translation_service import (
     TranslationError,
     translate_segments,
 )
+from app.config.languages import require_supported_language
 
 
 router = APIRouter(tags=["translation"])
-
-TARGET_LANGUAGE = "zh"
-
 
 class WhisperSegment(BaseModel):
     """Whisper segment accepted by the translation endpoint."""
@@ -37,15 +35,19 @@ class TranslatedSegment(BaseModel):
 @router.post("/translate-subtitle", response_model=list[TranslatedSegment])
 async def translate_subtitle(
     segments: list[WhisperSegment],
+    source_language: str = Query(default="en"),
+    target_language: str = Query(default="zh"),
 ) -> list[TranslatedSegment]:
-    """Translate English Whisper segments into timestamp-aligned Chinese text."""
+    """Translate Whisper segments while preserving their original timeline."""
     source_segments = [segment.model_dump() for segment in segments]
     try:
+        source_language = require_supported_language(source_language, "source")
+        target_language = require_supported_language(target_language, "target")
         translated_segments = await asyncio.to_thread(
             translate_segments,
             source_segments,
-            "en",
-            TARGET_LANGUAGE,
+            source_language,
+            target_language,
         )
     except TranslationConfigurationError as exc:
         raise HTTPException(
@@ -57,7 +59,12 @@ async def translate_subtitle(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
-    except (KeyError, OSError, TypeError, ValueError) as exc:
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except (KeyError, OSError, TypeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate translated subtitles: {exc}",

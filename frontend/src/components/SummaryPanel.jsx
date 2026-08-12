@@ -14,6 +14,7 @@ export default function SummaryPanel({
   videoId,
   currentTime = 0,
   onSeekToTime,
+  outputLanguage = "zh",
 }) {
   const [status, setStatus] = useState("idle");
   const [summary, setSummary] = useState(null);
@@ -34,7 +35,7 @@ export default function SummaryPanel({
       const response = await fetch(`/api/summary/${encodeURIComponent(videoId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ output_language: "zh" }),
+        body: JSON.stringify({ output_language: outputLanguage }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {

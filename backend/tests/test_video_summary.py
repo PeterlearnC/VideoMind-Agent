@@ -75,6 +75,31 @@ class VideoSummaryAgentTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "contains no content"):
             agent.summarize([])
 
+    def test_uses_configured_multilingual_summary_language(self) -> None:
+        session = FakeSession()
+        agent = VideoSummaryAgent(api_key="test-key", session=session)
+
+        agent.summarize(
+            [{"start": 0, "end": 1, "source_text": "こんにちは"}],
+            "ja",
+        )
+
+        prompt = session.requests[0]["json"]["messages"][0]["content"]
+        self.assertIn("Write all output in Japanese", prompt)
+
+    def test_prefers_corrected_transcript(self) -> None:
+        session = FakeSession()
+        agent = VideoSummaryAgent(api_key="test-key", session=session)
+
+        agent.summarize(
+            [{"start": 0, "raw_text": "wrong", "corrected_text": "correct"}],
+            "en",
+        )
+
+        prompt = session.requests[0]["json"]["messages"][1]["content"]
+        self.assertIn("correct", prompt)
+        self.assertNotIn("wrong", prompt)
+
 
 class VideoSummaryApiTests(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.summary.get_subtitle", new_callable=AsyncMock)

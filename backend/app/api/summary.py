@@ -1,11 +1,10 @@
 """API for AI-generated video summaries."""
 
 import asyncio
-from typing import Literal
-
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from app.config.languages import require_supported_language
 from app.agents.video_summary_agent import (
     SummaryAgentConfigurationError,
     SummaryAgentError,
@@ -20,7 +19,12 @@ router = APIRouter(tags=["summary"])
 class SummaryRequest(BaseModel):
     """Options for summary generation."""
 
-    output_language: Literal["zh", "en"] = "zh"
+    output_language: str = "zh"
+
+    @field_validator("output_language")
+    @classmethod
+    def validate_output_language(cls, value: str) -> str:
+        return require_supported_language(value, "summary")
 
 
 class SummaryChapter(BaseModel):

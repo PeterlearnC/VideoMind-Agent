@@ -3,7 +3,8 @@
 :root {
   color: #1d201c;
   background: #f4f1ea;
-  font-family: "DM Sans", "Noto Sans SC", system-ui, sans-serif;
+  font-family: system-ui, "Segoe UI", Arial, "Noto Sans", "Microsoft YaHei",
+    "Yu Gothic", "Malgun Gothic", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --ink: #1d201c;
@@ -379,6 +380,36 @@ svg {
   overflow: hidden;
   border: 1px solid #cdd1c7;
   background: #f9f9f4;
+}
+
+.target-language-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  background: rgba(241, 239, 232, 0.7);
+  font-size: 0.76rem;
+}
+
+.target-language-select select {
+  min-width: 0;
+  height: 38px;
+  padding: 0 0.75rem;
+  border: 1px solid #cdd1c7;
+  border-radius: 2px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+}
+
+.target-language-select select:focus-visible {
+  outline: 3px solid rgba(78, 111, 86, 0.28);
+  outline-offset: 2px;
 }
 
 .file-icon {
@@ -845,6 +876,9 @@ svg {
   font-size: var(--subtitle-font-size, 20px);
   line-height: 1.45;
   white-space: pre-line;
+  overflow-wrap: anywhere;
+  font-family: system-ui, "Segoe UI", Arial, "Noto Sans", "Microsoft YaHei",
+    "Yu Gothic", "Malgun Gothic", sans-serif;
 }
 
 .subtitle-translation {

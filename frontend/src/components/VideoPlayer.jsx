@@ -9,6 +9,8 @@ export default function VideoPlayer({
   title = "视频预览",
   seekRequest = null,
   onTimeChange,
+  sourceLanguage,
+  targetLanguage,
 }) {
   const videoRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -20,6 +22,14 @@ export default function VideoPlayer({
     setCurrentTime(0);
     onTimeChange?.(0);
   }, [src]);
+
+  useEffect(() => {
+    setDisplayMode(
+      sourceLanguage && sourceLanguage === targetLanguage
+        ? "source"
+        : "bilingual",
+    );
+  }, [sourceLanguage, targetLanguage]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -83,11 +93,13 @@ export default function VideoPlayer({
         onEnabledChange={setSubtitlesEnabled}
         onDisplayModeChange={setDisplayMode}
         onFontSizeChange={setSubtitleFontSize}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={targetLanguage}
       />
       <p className="player-caption">
         {subtitles.length > 0
-          ? `已加载 ${subtitles.length} 条双语字幕，字幕会随播放进度实时切换。`
-          : "视频已就绪。生成双语字幕后会在画面中实时显示。"}
+          ? `已加载 ${subtitles.length} 条${sourceLanguage === targetLanguage ? "单语" : "双语"}字幕，字幕会随播放进度实时切换。`
+          : "视频已就绪。生成字幕后会在画面中实时显示。"}
       </p>
     </section>
   );

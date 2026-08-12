@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 
+import { SUPPORTED_LANGUAGES } from "../languages";
+
 function UploadIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -50,6 +52,8 @@ export default function UploadPanel({
   onSelectFile,
   onClearFile,
   onSubmit,
+  targetLanguage,
+  onTargetLanguageChange,
 }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -127,6 +131,20 @@ export default function UploadPanel({
           event.target.value = "";
         }}
       />
+
+      <label className="target-language-select">
+        <span>字幕语言</span>
+        <select
+          value={targetLanguage}
+          disabled={busy}
+          onChange={(event) => onTargetLanguageChange(event.target.value)}
+        >
+          <option value="">自动选择（英文→中文，其他→英文）</option>
+          {Object.entries(SUPPORTED_LANGUAGES).map(([code, language]) => (
+            <option key={code} value={code}>{language.name}</option>
+          ))}
+        </select>
+      </label>
 
       <button className="generate-button" type="submit" disabled={!file || busy}>
         <span>

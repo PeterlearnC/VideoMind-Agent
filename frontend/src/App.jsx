@@ -4,6 +4,7 @@ import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
 import SummaryPanel from "./components/SummaryPanel";
 import VideoQAPanel from "./components/VideoQAPanel";
+import { languageLabel } from "./languages";
 
 const API_ENDPOINT = "/api/generate-bilingual-subtitle";
 const DOWNLOAD_ENDPOINT = "/downloads/bilingual.srt";
@@ -56,6 +57,9 @@ function requestBilingualSubtitle(file, callbacks) {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append("file", file);
+    if (callbacks.targetLanguage) {
+      formData.append("target_language", callbacks.targetLanguage);
+    }
 
     xhr.open("POST", API_ENDPOINT);
     xhr.timeout = 30 * 60 * 1000;
@@ -135,6 +139,9 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [targetLanguage, setTargetLanguage] = useState("");
+  const [sourceLanguage, setSourceLanguage] = useState("");
+  const [resolvedTargetLanguage, setResolvedTargetLanguage] = useState("");
   const [seekRequest, setSeekRequest] = useState(null);
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
   const playerRegionRef = useRef(null);
@@ -177,6 +184,8 @@ export default function App() {
       setResult(null);
       setSubtitles([]);
       setVideoId("");
+      setSourceLanguage("");
+      setResolvedTargetLanguage("");
       setStatus("error");
       setErrorMessage("请选择 MP4 格式的视频文件。");
       return;
@@ -187,6 +196,8 @@ export default function App() {
       setResult(null);
       setSubtitles([]);
       setVideoId("");
+      setSourceLanguage("");
+      setResolvedTargetLanguage("");
       setStatus("error");
       setErrorMessage("视频超过 2 GB，请选择更小的 MP4 文件。");
       return;
@@ -196,6 +207,8 @@ export default function App() {
     setResult(null);
     setSubtitles([]);
     setVideoId("");
+    setSourceLanguage("");
+    setResolvedTargetLanguage("");
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
@@ -209,6 +222,8 @@ export default function App() {
     setResult(null);
     setSubtitles([]);
     setVideoId("");
+    setSourceLanguage("");
+    setResolvedTargetLanguage("");
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
@@ -227,6 +242,7 @@ export default function App() {
 
     try {
       const response = await requestBilingualSubtitle(file, {
+        targetLanguage,
         onProgress: setUploadProgress,
         onUploadComplete: () => {
           setUploadProgress(100);
@@ -246,7 +262,21 @@ export default function App() {
         throw new Error(payload?.detail || "无法加载生成的字幕。");
       }
       const subtitlePayload = await subtitleResponse.json();
-      setSubtitles(subtitlePayload.subtitles || []);
+      const detectedSource = response.source_language || response.language;
+      const translatedTarget = response.target_language || "zh";
+      setSubtitles(
+        (subtitlePayload.subtitles || []).map((subtitle) => ({
+          ...subtitle,
+          source_language: detectedSource,
+          target_language: translatedTarget,
+          translations: {
+            [translatedTarget]:
+              subtitle.translated_text || subtitle.translation || "",
+          },
+        })),
+      );
+      setSourceLanguage(detectedSource);
+      setResolvedTargetLanguage(translatedTarget);
       setVideoId(videoId);
       setResult({
         ...response,
@@ -294,8 +324,8 @@ export default function App() {
           <em>两种语言。</em>
         </h1>
         <p className="hero-copy">
-          上传英文 MP4，自动识别语音、生成时间轴并翻译为中文，
-          同步生成可直接使用的双语字幕，并由 AI Agent 提炼结构化视频摘要。
+          上传 MP4，自动识别原始语言、保留 Whisper 精确时间轴并翻译为所选语言，
+          同步生成多语言双语字幕，并由 AI Agent 提炼结构化视频摘要。
         </p>
       </section>
 
@@ -309,6 +339,8 @@ export default function App() {
           onSelectFile={selectFile}
           onClearFile={clearFile}
           onSubmit={handleSubmit}
+          targetLanguage={targetLanguage}
+          onTargetLanguageChange={setTargetLanguage}
         />
 
         <aside className="process-panel">
@@ -341,10 +373,10 @@ export default function App() {
               </div>
               <div className="result-meta">
                 <span>
-                  检测语言 <strong>{result.language?.toUpperCase()}</strong>
+                  原语言 <strong>{languageLabel(sourceLanguage)}</strong>
                 </span>
                 <span>
-                  输出文件 <strong>bilingual.srt</strong>
+                  目标语言 <strong>{languageLabel(resolvedTargetLanguage)}</strong>
                 </span>
               </div>
               <a
@@ -361,7 +393,7 @@ export default function App() {
               <span className="note-line" aria-hidden="true" />
               <p>
                 {status === "processing"
-                  ? "Whisper 正在分析语音，随后将由翻译服务生成中文字幕。请保持页面开启。"
+                  ? "Whisper 正在识别原语言，随后将由翻译服务生成目标语言字幕。请保持页面开启。"
                   : "处理时间取决于视频长度和本机性能。字幕会保留 Whisper 生成的精确时间轴。"}
               </p>
             </div>
@@ -376,6 +408,8 @@ export default function App() {
           title={file ? file.name : "视频预览"}
           seekRequest={seekRequest}
           onTimeChange={setPlayerCurrentTime}
+          sourceLanguage={sourceLanguage}
+          targetLanguage={resolvedTargetLanguage}
         />
       </div>
 
@@ -383,6 +417,7 @@ export default function App() {
         videoId={videoId}
         currentTime={playerCurrentTime}
         onSeekToTime={handleSeekToTime}
+        outputLanguage={resolvedTargetLanguage || "zh"}
       />
 
       <VideoQAPanel videoId={videoId} onSeekToTime={handleSeekToTime} />
