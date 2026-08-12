@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
 import SummaryPanel from "./components/SummaryPanel";
+import VideoQAPanel from "./components/VideoQAPanel";
 
 const API_ENDPOINT = "/api/generate-bilingual-subtitle";
 const DOWNLOAD_ENDPOINT = "/downloads/bilingual.srt";
@@ -383,6 +384,8 @@ export default function App() {
         currentTime={playerCurrentTime}
         onSeekToTime={handleSeekToTime}
       />
+
+      <VideoQAPanel videoId={videoId} onSeekToTime={handleSeekToTime} />
 
       <footer>
         <span>VideoMind Agent</span>
