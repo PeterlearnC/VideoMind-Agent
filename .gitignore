@@ -33,6 +33,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Local launcher process IDs
+.runtime/
+
 # Generated/runtime media data
 data/videos/*
 data/audio/*
