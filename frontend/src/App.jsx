@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
@@ -196,6 +196,10 @@ export default function App() {
       block: "start",
     });
   }
+
+  const handleActiveCueChange = useCallback((_activeCueId, currentTime) => {
+    setPlayerCurrentTime(currentTime);
+  }, []);
 
   useEffect(() => {
     if (!file) return undefined;
@@ -540,7 +544,7 @@ export default function App() {
           subtitles={subtitles}
           title={file ? file.name : workspaceVideoName || "视频预览"}
           seekRequest={seekRequest}
-          onTimeChange={setPlayerCurrentTime}
+          onActiveCueChange={handleActiveCueChange}
           sourceLanguage={sourceLanguage}
           targetLanguage={resolvedTargetLanguage}
         />

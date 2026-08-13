@@ -836,6 +836,30 @@ svg {
   font-size: 0.75rem;
 }
 
+.playback-rate-control {
+  display: flex;
+  align-items: center;
+}
+
+.playback-rate-control {
+  position: relative;
+  z-index: 2;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  pointer-events: auto;
+}
+
+.playback-rate-control select {
+  min-width: 4.4rem;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
 .video-frame {
   position: relative;
   overflow: hidden;
@@ -888,7 +912,7 @@ svg {
 
 .subtitle-control {
   display: grid;
-  grid-template-columns: auto minmax(260px, 1fr) minmax(230px, 0.8fr);
+  grid-template-columns: auto minmax(250px, 1fr) auto minmax(210px, 0.8fr);
   gap: clamp(1rem, 3vw, 2.5rem);
   align-items: center;
   margin-top: 1rem;

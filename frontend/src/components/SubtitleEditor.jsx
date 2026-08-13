@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  AUTO_SCROLL_RESUME_DELAY,
+  activeCueId,
+  internalScrollTarget,
+  shouldAutoScroll,
+} from "../subtitleAutoScroll.js";
+import { findActiveCueId } from "../subtitleTiming.js";
+
 function formatTimestamp(seconds) {
   const value = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(value / 3600);
@@ -54,10 +62,16 @@ export default function SubtitleEditor({
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState({});
   const editorRef = useRef(null);
+  const listRef = useRef(null);
   const cueRefs = useRef({});
   const activeIdRef = useRef(null);
+  const userScrollingRef = useRef(false);
+  const editingRef = useRef(false);
+  const resumeTimerRef = useRef(null);
+  const programmaticScrollRef = useRef(false);
 
   const dirtyIds = Object.keys(drafts);
+  const renderedActiveId = findActiveCueId(cues, currentTime);
   useEffect(() => onDirtyChange?.(dirtyIds.length), [dirtyIds.length, onDirtyChange]);
 
   useEffect(() => {
@@ -94,17 +108,59 @@ export default function SubtitleEditor({
   }, [resetToken]);
 
   useEffect(() => {
-    const active = cues.find(
-      (cue) => currentTime >= Number(cue.start) && currentTime < Number(cue.end),
-    );
-    const activeId = active ? String(active.id) : null;
+    const activeId = activeCueId(cues, currentTime);
     if (activeId && activeId !== activeIdRef.current) {
       activeIdRef.current = activeId;
-      const focused = document.activeElement;
-      if (focused?.tagName === "TEXTAREA" && editorRef.current?.contains(focused)) return;
-      cueRefs.current[activeId]?.scrollIntoView({ block: "nearest" });
+      if (!shouldAutoScroll({
+        userScrolling: userScrollingRef.current,
+        editing: editingRef.current,
+        query,
+      })) return;
+      const container = listRef.current;
+      const target = internalScrollTarget(container, cueRefs.current[activeId]);
+      if (target === null) return;
+      programmaticScrollRef.current = true;
+      container.scrollTo({ top: target, behavior: "smooth" });
+      window.setTimeout(() => { programmaticScrollRef.current = false; }, 250);
     }
-  }, [currentTime, cues]);
+  }, [currentTime, cues, query]);
+
+  useEffect(() => () => {
+    if (resumeTimerRef.current) window.clearTimeout(resumeTimerRef.current);
+  }, []);
+
+  function pauseAutoScroll() {
+    userScrollingRef.current = true;
+    if (resumeTimerRef.current) window.clearTimeout(resumeTimerRef.current);
+    resumeTimerRef.current = window.setTimeout(() => {
+      userScrollingRef.current = false;
+      resumeTimerRef.current = null;
+    }, AUTO_SCROLL_RESUME_DELAY);
+  }
+
+  function pauseForEditing() {
+    editingRef.current = true;
+    pauseAutoScroll();
+  }
+
+  function resumeAfterEditing() {
+    editingRef.current = false;
+    pauseAutoScroll();
+  }
+
+  useEffect(() => {
+    const pauseForPageInteraction = () => pauseAutoScroll();
+    window.addEventListener("wheel", pauseForPageInteraction, { passive: true });
+    window.addEventListener("touchmove", pauseForPageInteraction, { passive: true });
+    window.addEventListener("pointerdown", pauseForPageInteraction, { passive: true });
+    window.addEventListener("scroll", pauseForPageInteraction, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", pauseForPageInteraction);
+      window.removeEventListener("touchmove", pauseForPageInteraction);
+      window.removeEventListener("pointerdown", pauseForPageInteraction);
+      window.removeEventListener("scroll", pauseForPageInteraction);
+    };
+  }, []);
 
   useEffect(() => {
     const warn = (event) => {
@@ -241,7 +297,7 @@ export default function SubtitleEditor({
   const sameLanguage = sourceLanguage === targetLanguage;
 
   return (
-    <section ref={editorRef} className="subtitle-editor" aria-labelledby="subtitle-editor-title">
+    <section ref={editorRef} className="subtitle-editor" aria-labelledby="subtitle-editor-title" onWheel={pauseAutoScroll} onTouchMove={pauseAutoScroll} onPointerDown={pauseAutoScroll}>
       <div className="editor-heading">
         <div>
           <span className="section-number">04</span>
@@ -262,12 +318,12 @@ export default function SubtitleEditor({
       {dirtyIds.length > 0 && <p className="editor-notice">你还有未保存的字幕修改。继续切换或重新生成将丢失这些内容。</p>}
       {error && <div className="error-message" role="alert"><span>!</span><p>{error}</p></div>}
       {status === "loading" ? <p className="editor-empty">正在加载字幕工作台…</p> : (
-        <div className="editor-list">
+        <div ref={listRef} className="editor-list" onScroll={() => { if (!programmaticScrollRef.current) pauseAutoScroll(); }}>
           {filtered.map((cue) => {
             const id = String(cue.id);
             const draft = draftFor(cue);
             const dirty = Boolean(drafts[id]);
-            const active = currentTime >= Number(cue.start) && currentTime < Number(cue.end);
+            const active = id === renderedActiveId;
             const [state, stateLabel] = cueState(cue, id);
             return (
               <article ref={(node) => { cueRefs.current[id] = node; }} className={`editor-cue${active ? " is-current" : ""}`} key={id}>
@@ -276,8 +332,8 @@ export default function SubtitleEditor({
                   <span className={`editor-state is-${state}`}>{stateLabel}</span>
                 </header>
                 {query.trim() && <div className="editor-match-preview"><HighlightedText text={`${effectiveSource(cue)}${sameLanguage ? "" : ` / ${effectiveTranslation(cue)}`}`} query={query} /></div>}
-                <label>原文<textarea maxLength={5000} disabled={state === "saving"} value={draft.source_text} onChange={(event) => changeDraft(cue, "source_text", event.target.value)} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); saveCue(cue); } }} /></label>
-                {!sameLanguage && <label>译文<textarea maxLength={5000} disabled={state === "saving"} value={draft.translated_text} onChange={(event) => changeDraft(cue, "translated_text", event.target.value)} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); saveCue(cue); } }} /></label>}
+                <label>原文<textarea maxLength={5000} disabled={state === "saving"} value={draft.source_text} onFocus={pauseForEditing} onBlur={resumeAfterEditing} onChange={(event) => changeDraft(cue, "source_text", event.target.value)} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); saveCue(cue); } }} /></label>
+                {!sameLanguage && <label>译文<textarea maxLength={5000} disabled={state === "saving"} value={draft.translated_text} onFocus={pauseForEditing} onBlur={resumeAfterEditing} onChange={(event) => changeDraft(cue, "translated_text", event.target.value)} onKeyDown={(event) => { if (event.ctrlKey && event.key === "Enter") { event.preventDefault(); saveCue(cue); } }} /></label>}
                 <div className="editor-cue-actions">
                   <button type="button" disabled={!dirty || state === "saving"} onClick={() => saveCue(cue)}>保存</button>
                   <button type="button" disabled={!dirty || state === "saving"} onClick={() => { setDrafts((previous) => { const next = { ...previous }; delete next[id]; return next; }); setCueStatuses((previous) => ({ ...previous, [id]: "clean" })); }}>撤销</button>

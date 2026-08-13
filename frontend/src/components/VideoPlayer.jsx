@@ -1,27 +1,81 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import StableVideoElement from "./StableVideoElement";
 import SubtitleControl from "./SubtitleControl";
 import SubtitleTrack from "./SubtitleTrack";
+import {
+  readMediaPlaybackRate,
+  setMediaPlaybackRate,
+} from "../playbackRate.js";
+import { createPlaybackClock, findActiveCueId } from "../subtitleTiming.js";
 
 export default function VideoPlayer({
   src,
   subtitles = [],
   title = "视频预览",
   seekRequest = null,
-  onTimeChange,
+  onActiveCueChange,
   sourceLanguage,
   targetLanguage,
 }) {
   const videoRef = useRef(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  const clockRef = useRef(null);
+  const playerTimeRef = useRef(null);
+  const subtitlesRef = useRef(subtitles);
+  const onActiveCueChangeRef = useRef(onActiveCueChange);
+  const publishedActiveCueIdRef = useRef(undefined);
+  const playbackRateRef = useRef(1);
+  const [activeCueId, setActiveCueId] = useState(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [displayMode, setDisplayMode] = useState("bilingual");
   const [subtitleFontSize, setSubtitleFontSize] = useState(20);
 
   useEffect(() => {
-    setCurrentTime(0);
-    onTimeChange?.(0);
+    publishedActiveCueIdRef.current = undefined;
+    setActiveCueId(null);
+    if (playerTimeRef.current) playerTimeRef.current.textContent = "0.0s";
   }, [src]);
+
+  useEffect(() => {
+    subtitlesRef.current = subtitles;
+    clockRef.current?.sync();
+  }, [subtitles]);
+
+  useEffect(() => {
+    onActiveCueChangeRef.current = onActiveCueChange;
+  }, [onActiveCueChange]);
+
+  const publishPlaybackPosition = useCallback((nextTime, force = false) => {
+    if (playerTimeRef.current) {
+      playerTimeRef.current.textContent = `${nextTime.toFixed(1)}s`;
+    }
+    const nextActiveCueId = findActiveCueId(subtitlesRef.current, nextTime);
+    if (nextActiveCueId !== publishedActiveCueIdRef.current) {
+      publishedActiveCueIdRef.current = nextActiveCueId;
+      setActiveCueId(nextActiveCueId);
+      onActiveCueChangeRef.current?.(nextActiveCueId, nextTime);
+    } else if (force) {
+      onActiveCueChangeRef.current?.(nextActiveCueId, nextTime);
+    }
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return undefined;
+    const clock = createPlaybackClock({
+      readTime: () => video.currentTime,
+      publishTime: publishPlaybackPosition,
+      requestFrame: window.requestAnimationFrame.bind(window),
+      cancelFrame: window.cancelAnimationFrame.bind(window),
+    });
+    clockRef.current = clock;
+    clock.sync();
+    return () => {
+      clock.dispose();
+      if (clockRef.current === clock) clockRef.current = null;
+    };
+  }, [src, publishPlaybackPosition]);
 
   useEffect(() => {
     setDisplayMode(
@@ -36,19 +90,50 @@ export default function VideoPlayer({
     if (!video || !seekRequest) return;
 
     video.currentTime = seekRequest.targetTime;
-    setCurrentTime(seekRequest.targetTime);
-    onTimeChange?.(seekRequest.targetTime);
+    clockRef.current?.sync();
+    publishPlaybackPosition(video.currentTime, true);
     const playPromise = video.play();
     playPromise?.catch(() => {
       // Browsers may still block scripted playback; the seek itself remains valid.
     });
-  }, [seekRequest]);
+  }, [seekRequest, publishPlaybackPosition]);
 
-  function handleTimeChange(event) {
-    const nextTime = event.currentTarget.currentTime;
-    setCurrentTime(nextTime);
-    onTimeChange?.(nextTime);
-  }
+  const handleTimeChange = useCallback(() => {
+    clockRef.current?.sync();
+  }, []);
+
+  const handleExplicitTimeChange = useCallback((event) => {
+    clockRef.current?.sync();
+    publishPlaybackPosition(event.currentTarget.currentTime, true);
+  }, [publishPlaybackPosition]);
+
+  const handlePlaybackRateChange = useCallback((nextRate) => {
+    const appliedRate = setMediaPlaybackRate(videoRef.current, nextRate);
+    if (appliedRate !== null) {
+      playbackRateRef.current = appliedRate;
+      setPlaybackRate(appliedRate);
+    }
+  }, []);
+
+  const handleNativeRateChange = useCallback((event) => {
+    const nextRate = readMediaPlaybackRate(event.currentTarget);
+    playbackRateRef.current = nextRate;
+    setPlaybackRate(nextRate);
+  }, []);
+
+  const handleLoadedMetadata = useCallback((event) => {
+    setMediaPlaybackRate(event.currentTarget, playbackRateRef.current);
+    clockRef.current?.sync();
+    publishPlaybackPosition(event.currentTarget.currentTime, true);
+  }, [publishPlaybackPosition]);
+
+  const handlePlay = useCallback(() => clockRef.current?.play(), []);
+  const handlePause = useCallback(() => clockRef.current?.pause(), []);
+
+  const activeSubtitle = useMemo(
+    () => subtitles.find((cue) => String(cue.id) === activeCueId) || null,
+    [activeCueId, subtitles],
+  );
 
   if (!src) {
     return null;
@@ -61,25 +146,23 @@ export default function VideoPlayer({
           <span className="section-number">03</span>
           <h2>{title}</h2>
         </div>
-        <span className="player-time">{currentTime.toFixed(1)}s</span>
+        <span ref={playerTimeRef} className="player-time">0.0s</span>
       </div>
       <div className="video-frame">
-        <video
-          ref={videoRef}
-          key={src}
-          className="video-player"
+        <StableVideoElement
+          videoRef={videoRef}
           src={src}
-          controls
-          playsInline
-          preload="metadata"
           onTimeUpdate={handleTimeChange}
-          onSeeked={handleTimeChange}
-        >
-          你的浏览器不支持 HTML5 视频播放。
-        </video>
+          onSeeking={handleExplicitTimeChange}
+          onSeeked={handleExplicitTimeChange}
+          onLoadedMetadata={handleLoadedMetadata}
+          onRateChange={handleNativeRateChange}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onEnded={handlePause}
+        />
         <SubtitleTrack
-          subtitles={subtitles}
-          currentTime={currentTime}
+          activeSubtitle={activeSubtitle}
           enabled={subtitlesEnabled}
           displayMode={displayMode}
           fontSize={subtitleFontSize}
@@ -89,10 +172,12 @@ export default function VideoPlayer({
         enabled={subtitlesEnabled}
         displayMode={displayMode}
         fontSize={subtitleFontSize}
+        playbackRate={playbackRate}
         disabled={subtitles.length === 0}
         onEnabledChange={setSubtitlesEnabled}
         onDisplayModeChange={setDisplayMode}
         onFontSizeChange={setSubtitleFontSize}
+        onPlaybackRateChange={handlePlaybackRateChange}
         sourceLanguage={sourceLanguage}
         targetLanguage={targetLanguage}
       />

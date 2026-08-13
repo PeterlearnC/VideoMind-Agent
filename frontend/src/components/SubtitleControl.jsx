@@ -1,13 +1,16 @@
 import { languageLabel } from "../languages";
+import { PLAYBACK_RATE_OPTIONS } from "../playbackRate.js";
 
 export default function SubtitleControl({
   enabled,
   displayMode,
   fontSize,
+  playbackRate,
   disabled = false,
   onEnabledChange,
   onDisplayModeChange,
   onFontSizeChange,
+  onPlaybackRateChange,
   sourceLanguage,
   targetLanguage,
 }) {
@@ -51,6 +54,19 @@ export default function SubtitleControl({
           ))}
         </div>
       </fieldset>
+
+      <label className="playback-rate-control">
+        <span>倍速</span>
+        <select
+          aria-label="播放倍速"
+          value={playbackRate}
+          onChange={(event) => onPlaybackRateChange(Number(event.target.value))}
+        >
+          {PLAYBACK_RATE_OPTIONS.map((rate) => (
+            <option key={rate} value={rate}>{rate}x</option>
+          ))}
+        </select>
+      </label>
 
       <label className="subtitle-size">
         <span>字号</span>

@@ -1,15 +1,9 @@
 export default function SubtitleTrack({
-  subtitles = [],
-  currentTime = 0,
+  activeSubtitle = null,
   enabled = true,
   displayMode = "bilingual",
   fontSize = 20,
 }) {
-  const activeSubtitle = subtitles.find(
-    (subtitle) =>
-      currentTime >= Number(subtitle.start) && currentTime < Number(subtitle.end),
-  );
-
   if (!enabled || !activeSubtitle) {
     return null;
   }
