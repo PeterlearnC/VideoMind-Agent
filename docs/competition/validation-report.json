@@ -1,0 +1,111 @@
+{
+  "valid": true,
+  "slide_count": 15,
+  "size_inches": [
+    13.333,
+    7.5
+  ],
+  "aspect_ratio": 1.777778,
+  "editable_text_shapes": 208,
+  "picture_shapes": 0,
+  "screenshot_placeholder_pages": [
+    8,
+    9,
+    11,
+    12
+  ],
+  "errors": [],
+  "warnings": [],
+  "slides": [
+    {
+      "slide": 1,
+      "title": "VideoMind Agent",
+      "shape_count": 9,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 2,
+      "title": "视频越来越多，信息却仍被困在线性时间轴里",
+      "shape_count": 17,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 3,
+      "title": "四类用户，共享同一个需求：更快获得可信信息",
+      "shape_count": 36,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 4,
+      "title": "时间戳字幕，是连接视频与 AI 理解的核心数据层",
+      "shape_count": 22,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 5,
+      "title": "一条连续工作流，把原始视频变成可复用知识",
+      "shape_count": 28,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 6,
+      "title": "三层架构，让交互、字幕质量与 AI 理解各司其职",
+      "shape_count": 15,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 7,
+      "title": "严格校验与可恢复机制，提高 TranscriptCorrection 稳定性",
+      "shape_count": 35,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 8,
+      "title": "Human-in-the-loop：AI 提效，人对最终质量负责",
+      "shape_count": 15,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 9,
+      "title": "同一个媒体时钟，驱动播放器字幕与编辑器高亮",
+      "shape_count": 21,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 10,
+      "title": "高亮实时变化，滚动始终尊重人工操作",
+      "shape_count": 19,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 11,
+      "title": "先校正，再翻译，避免错误从原文传播到译文",
+      "shape_count": 26,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 12,
+      "title": "从“按时间找信息”，升级为“按问题找信息”",
+      "shape_count": 16,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 13,
+      "title": "AI 原生能力建立在结构化字幕与严格工程约束之上",
+      "shape_count": 31,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 14,
+      "title": "核心链路已可运行，商业化仍属于下一阶段规划",
+      "shape_count": 25,
+      "out_of_bounds": []
+    },
+    {
+      "slide": 15,
+      "title": "从稳定可用，走向视频知识化",
+      "shape_count": 21,
+      "out_of_bounds": []
+    }
+  ]
+}

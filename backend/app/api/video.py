@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from app.services.subtitle_service import generate_srt
 from app.services.whisper_service import transcribe_audio
+from app.services.performance_metrics import collect_video_metadata, get_active_run
 
 
 router = APIRouter(tags=["video"])
@@ -140,12 +141,36 @@ async def transcribe_video(file: UploadFile = File(...)) -> dict[str, Any]:
 
     video_path = VIDEO_DIR / filename
     audio_path = AUDIO_DIR / f"{Path(filename).stem}.wav"
+    metrics = get_active_run()
 
     try:
-        VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-        with video_path.open("wb") as output_file:
-            while chunk := await file.read(1024 * 1024):
-                output_file.write(chunk)
+        stage = metrics.stage(
+            "upload", measurement_scope="server_receive_and_save"
+        ) if metrics else None
+        if stage:
+            stage.__enter__()
+        try:
+            VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+            with video_path.open("wb") as output_file:
+                while chunk := await file.read(1024 * 1024):
+                    output_file.write(chunk)
+            file_size = video_path.stat().st_size
+            if stage:
+                stage.update(file_size_bytes=file_size)
+            if metrics:
+                metrics.set_video(
+                    filename=filename,
+                    video_name=filename,
+                    file_size_bytes=file_size,
+                )
+        except BaseException as exc:
+            if stage:
+                stage.__exit__(type(exc), exc, exc.__traceback__)
+                stage = None
+            raise
+        finally:
+            if stage:
+                stage.__exit__(None, None, None)
     except Exception as exc:
         try:
             video_path.unlink(missing_ok=True)
@@ -161,8 +186,29 @@ async def transcribe_video(file: UploadFile = File(...)) -> dict[str, Any]:
         except Exception:
             pass
 
+    if metrics:
+        try:
+            video_metadata = await asyncio.to_thread(
+                collect_video_metadata, video_path
+            )
+            metrics.set_video(**video_metadata)
+        except Exception as exc:
+            # Metrics are best-effort; even scheduling/collection failures must
+            # never prevent audio extraction and transcription.
+            metrics.set_video(
+                filename=filename,
+                video_name=filename,
+                file_size_bytes=file_size,
+                metadata_collection_status="failed",
+                metadata_collection_error_type=type(exc).__name__,
+            )
+
     try:
-        await asyncio.to_thread(_extract_audio, video_path, audio_path)
+        if metrics:
+            with metrics.stage("media_preparation"):
+                await asyncio.to_thread(_extract_audio, video_path, audio_path)
+        else:
+            await asyncio.to_thread(_extract_audio, video_path, audio_path)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -185,7 +231,12 @@ async def transcribe_video(file: UploadFile = File(...)) -> dict[str, Any]:
         ) from exc
 
     try:
-        transcription = await asyncio.to_thread(transcribe_audio, audio_path)
+        if metrics:
+            with metrics.stage("whisper_transcription") as stage:
+                transcription = await asyncio.to_thread(transcribe_audio, audio_path)
+                stage.update(raw_segment_count=len(transcription.get("segments", [])))
+        else:
+            transcription = await asyncio.to_thread(transcribe_audio, audio_path)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

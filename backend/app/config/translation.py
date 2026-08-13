@@ -8,6 +8,7 @@ from typing import Mapping
 DEFAULT_BATCH_SIZE = 15
 DEFAULT_CONTEXT_SIZE = 5
 DEFAULT_GLOBAL_TRANSCRIPT_MAX_SEGMENTS = 80
+DEFAULT_ID_RETRY_COUNT = 2
 
 
 def translation_batch_size() -> int:
@@ -36,6 +37,11 @@ def translation_review_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def translation_id_retry_count() -> int:
+    """Return direct retries before an ID-mismatched batch is split."""
+    return _nonnegative_int("TRANSLATION_ID_RETRY_COUNT", DEFAULT_ID_RETRY_COUNT)
 
 
 def load_translation_glossary() -> dict[str, str]:

@@ -11,6 +11,7 @@ from app.agents.video_qa_agent import (
     VideoQAAgentError,
 )
 from app.api.subtitle import get_subtitle
+from app.services.performance_metrics import observe_operation
 
 
 router = APIRouter(tags=["qa"])
@@ -117,13 +118,17 @@ async def answer_video_question(
         )
 
     try:
-        result = await asyncio.to_thread(
-            _get_qa_agent().answer,
-            video_id,
-            request.question,
-            cues,
-        )
-        return _build_response_from_cues(video_id, result, cues)
+        with observe_operation("qa", video_id) as perf:
+            result = await asyncio.to_thread(
+                _get_qa_agent().answer,
+                video_id,
+                request.question,
+                cues,
+            )
+            response = _build_response_from_cues(video_id, result, cues)
+            perf["answer_length"] = len(response.answer)
+            perf["timestamp_count"] = len(response.references)
+            return response
     except VideoQAAgentConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

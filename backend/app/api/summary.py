@@ -1,6 +1,7 @@
 """API for AI-generated video summaries."""
 
 import asyncio
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
@@ -11,6 +12,7 @@ from app.agents.video_summary_agent import (
     VideoSummaryAgent,
 )
 from app.api.subtitle import get_subtitle
+from app.services.performance_metrics import observe_operation
 
 
 router = APIRouter(tags=["summary"])
@@ -105,12 +107,15 @@ async def generate_video_summary(
     """Create a structured AI summary from a generated subtitle track."""
     subtitle_payload = await get_subtitle(video_id)
     try:
-        result = await asyncio.to_thread(
-            _get_summary_agent().summarize,
-            subtitle_payload["subtitles"],
-            request.output_language,
-        )
-        return VideoSummary(video_id=video_id, **result)
+        with observe_operation("summary", video_id) as perf:
+            result = await asyncio.to_thread(
+                _get_summary_agent().summarize,
+                subtitle_payload["subtitles"],
+                request.output_language,
+            )
+            response = VideoSummary(video_id=video_id, **result)
+            perf["generated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            return response
     except SummaryAgentConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

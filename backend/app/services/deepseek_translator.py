@@ -100,6 +100,37 @@ class DeepSeekTranslator(Translator):
         )
         return self._request_structured(system_prompt, request_content)
 
+    def translate_segments_retry(
+        self,
+        segments: list[dict[str, Any]],
+        **context: Any,
+    ) -> list[dict[str, Any]]:
+        """Retry one batch with an explicit immutable-ID contract."""
+        if not segments:
+            return []
+        request_content = {
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "global_transcript": context.get("global_transcript") or [],
+            "global_context": dict(context.get("global_context") or {}),
+            "previous_context": context.get("previous_context") or [],
+            "current_batch": segments,
+            "next_context": context.get("next_context") or [],
+            "glossary": dict(context.get("glossary") or {}),
+        }
+        expected_ids = [item["id"] for item in segments]
+        system_prompt = (
+            "Translate only current_batch into the requested target language and "
+            "return exactly one valid JSON object with a translations array. "
+            f"The required segment ids are exactly {expected_ids!r}. Preserve every "
+            "segment_id exactly: do not modify ids, renumber them, omit ids, add ids, "
+            "duplicate ids, merge segments, or split segments. Output count must equal "
+            "input count. Each item may contain only id and text. Preserve meaning, "
+            "numbers, units, years, terminology, and glossary choices. Output no "
+            "markdown and no explanation."
+        )
+        return self._request_structured(system_prompt, request_content)
+
     def build_global_context(
         self,
         segments: list[dict[str, Any]],
@@ -272,7 +303,7 @@ class TranslationItem(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: int | str
+    id: Any = None
     text: str = Field(min_length=1)
 
 

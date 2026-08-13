@@ -5,12 +5,16 @@ import os
 import unittest
 from unittest.mock import patch
 
+from app.services.performance_metrics import PerformanceRun, activate_run, reset_active_run
 from app.services.deepseek_translator import DeepSeekTranslator
 from app.services.translation_service import (
     TranslationConfigurationError,
     TranslationError,
     Translator,
+    analyze_translation_ids,
     translate_segments,
+    validate_numeric_fidelity,
+    validate_translation_batch,
 )
 
 
@@ -132,7 +136,160 @@ class RecordingTranslator(Translator):
         ]
 
 
+class ScriptedIdTranslator(Translator):
+    def __init__(self, responses) -> None:
+        self.responses = list(responses)
+        self.calls: list[list[int]] = []
+
+    def translate(self, text: str) -> str:
+        return text
+
+    def translate_segments(self, segments, **kwargs):
+        self.calls.append([item["id"] for item in segments])
+        response = self.responses.pop(0)
+        return response(segments) if callable(response) else response
+
+    def translate_segments_retry(self, segments, **kwargs):
+        return self.translate_segments(segments, **kwargs)
+
+
 class TranslationServiceTests(unittest.TestCase):
+    @staticmethod
+    def _id_source(count: int = 3):
+        return [
+            {"id": index, "start": index + 0.25, "end": index + 0.75,
+             "text": f"source {index}"}
+            for index in range(count)
+        ]
+
+    @staticmethod
+    def _valid_response(segments):
+        return [
+            {"id": item["id"], "text": f"translated {item['id']}"}
+            for item in segments
+        ]
+
+    def test_reordered_ids_are_reordered_without_retry(self) -> None:
+        source = self._id_source()
+        translator = ScriptedIdTranslator([
+            list(reversed(self._valid_response(source)))
+        ])
+        with patch(
+            "app.services.translation_service._get_translator",
+            return_value=translator,
+        ):
+            result = translate_segments(source, "en", "zh")
+        self.assertEqual([item["id"] for item in result], [0, 1, 2])
+        self.assertEqual(len(translator.calls), 1)
+
+    def test_id_analysis_distinguishes_missing_extra_duplicate_and_malformed(self) -> None:
+        missing = analyze_translation_ids([1, 2], [1])
+        extra = analyze_translation_ids([1, 2], [1, 2, 3])
+        duplicate = analyze_translation_ids([1, 2], [1, 1])
+        malformed = analyze_translation_ids([1], [[1]])
+        self.assertEqual(missing["missing_ids"], [2])
+        self.assertEqual(extra["extra_ids"], [3])
+        self.assertEqual(duplicate["duplicate_ids"], [1])
+        self.assertEqual(malformed["malformed_ids"], ["[1]"])
+
+    def test_missing_id_retries_only_current_batch_and_preserves_timeline(self) -> None:
+        source = self._id_source()
+        translator = ScriptedIdTranslator([
+            [{"id": 0, "text": "first"}],
+            self._valid_response,
+        ])
+        with patch(
+            "app.services.translation_service._get_translator",
+            return_value=translator,
+        ):
+            result = translate_segments(source, "en", "zh")
+        self.assertEqual(translator.calls, [[0, 1, 2], [0, 1, 2]])
+        self.assertEqual(
+            [(item["start"], item["end"]) for item in result],
+            [(item["start"], item["end"]) for item in source],
+        )
+
+    def test_extra_and_duplicate_ids_retry_successfully(self) -> None:
+        source = self._id_source(2)
+        invalid_cases = [
+            [
+                {"id": 0, "text": "zero"},
+                {"id": 1, "text": "one"},
+                {"id": 99, "text": "extra"},
+            ],
+            [{"id": 0, "text": "zero"}, {"id": 0, "text": "duplicate"}],
+        ]
+        for invalid in invalid_cases:
+            with self.subTest(invalid=invalid):
+                translator = ScriptedIdTranslator([invalid, self._valid_response])
+                with patch(
+                    "app.services.translation_service._get_translator",
+                    return_value=translator,
+                ):
+                    result = translate_segments(source, "en", "zh")
+                self.assertEqual([item["id"] for item in result], [0, 1])
+                self.assertEqual(len(translator.calls), 2)
+
+    def test_id_recovery_updates_performance_counters(self) -> None:
+        source = self._id_source(2)
+        translator = ScriptedIdTranslator([
+            [{"id": 0, "text": "missing one"}],
+            self._valid_response,
+        ])
+        run = PerformanceRun()
+        token = activate_run(run)
+        try:
+            with patch(
+                "app.services.translation_service._get_translator",
+                return_value=translator,
+            ):
+                translate_segments(source, "en", "zh")
+        finally:
+            reset_active_run(token)
+        stage = run.data["pipeline"]["stages"]["translation"]
+        self.assertEqual(stage["translation_id_mismatch_count"], 1)
+        self.assertEqual(stage["translation_id_retry_batches"], 1)
+        self.assertEqual(stage["translation_id_retry_successes"], 1)
+        self.assertEqual(stage["translation_id_split_batches"], 0)
+        self.assertEqual(stage["translation_id_fallback_segments"], 0)
+        self.assertEqual(stage["translation_id_failed_segments"], 0)
+
+    def test_two_retries_then_split_batch_succeeds(self) -> None:
+        source = self._id_source(4)
+        invalid = [{"id": 99, "text": "wrong"}]
+        translator = ScriptedIdTranslator([
+            invalid, invalid, invalid,
+            self._valid_response, self._valid_response,
+        ])
+        with patch(
+            "app.services.translation_service._get_translator",
+            return_value=translator,
+        ):
+            result = translate_segments(source, "en", "zh")
+        self.assertEqual(
+            translator.calls,
+            [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1], [2, 3]],
+        )
+        self.assertEqual([item["id"] for item in result], [0, 1, 2, 3])
+
+    def test_split_failure_uses_single_segment_fallback(self) -> None:
+        source = self._id_source(4)
+        invalid = [{"id": 99, "text": "wrong"}]
+        translator = ScriptedIdTranslator([
+            invalid, invalid, invalid,
+            invalid,
+            self._valid_response, self._valid_response,
+            self._valid_response,
+        ])
+        with patch(
+            "app.services.translation_service._get_translator",
+            return_value=translator,
+        ):
+            result = translate_segments(source, "en", "zh")
+        self.assertIn([0], translator.calls)
+        self.assertIn([1], translator.calls)
+        self.assertEqual([item["id"] for item in result], [0, 1, 2, 3])
+
     def test_deepseek_translator_uses_requests_and_returns_translation(self) -> None:
         source = "This car is equipped with the latest hydraulic brakes."
         expected = "这辆汽车配备最新的液压制动系统。"
@@ -462,6 +619,67 @@ class TranslationServiceTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(TranslationError, "numbers or units"):
                 translate_segments(source, "en", "zh")
+
+    def test_semantically_equivalent_english_chinese_quantities_pass(self) -> None:
+        cases = [
+            ("1 thousand", "1千"),
+            ("175 billion", "1750亿"),
+            ("1 million", "100万"),
+            ("50 percent", "50%"),
+            ("10 dollars", "10美元"),
+            ("5 minutes", "5分钟"),
+            ("2 hours", "120分钟"),
+            ("2025", "2025年"),
+            ("3.5 billion", "35亿"),
+            ("1 GB", "1000 MB"),
+            ("1 MB", "1000 KB"),
+            ("42", "42"),
+            ("3.5", "3.5"),
+        ]
+        for source, translated in cases:
+            with self.subTest(source=source, translated=translated):
+                result = validate_numeric_fidelity(source, translated)
+                self.assertEqual(result["status"], "passed", result)
+
+    def test_numeric_diagnostics_include_numbers_units_and_normalized_values(self) -> None:
+        result = validate_numeric_fidelity("175 billion", "1750亿")
+        self.assertEqual(result["source_numbers"], ["175"])
+        self.assertEqual(result["translated_numbers"], ["1750"])
+        self.assertEqual(result["source_units"], ["billion"])
+        self.assertEqual(result["translated_units"], ["亿"])
+        self.assertEqual(
+            result["source_quantities"][0]["normalized_value"],
+            result["translated_quantities"][0]["normalized_value"],
+        )
+
+    def test_uncertain_numeric_shape_is_warning_not_pipeline_failure(self) -> None:
+        source = [{"id": 9, "text": "The range is 3 to 5 minutes."}]
+        translated = [{"id": 9, "text": "范围约为4分钟。"}]
+        warnings = validate_translation_batch(source, translated)
+        self.assertEqual(warnings, [{
+            "id": 9,
+            "reason": "numeric_expression_not_comparable",
+        }])
+
+    def test_warning_translation_is_preserved_and_marked(self) -> None:
+        source = [{
+            "id": 9,
+            "start": 0,
+            "end": 1,
+            "text": "The range is 3 to 5 minutes.",
+        }]
+        translator = ResultTranslator([{"id": 9, "text": "范围约为4分钟。"}])
+        with patch(
+            "app.services.translation_service._get_translator",
+            return_value=translator,
+        ):
+            result = translate_segments(source, "en", "zh")
+        self.assertEqual(result[0]["text"], "范围约为4分钟。")
+        self.assertTrue(result[0]["validation_warning"])
+        self.assertEqual(
+            result[0]["validation_warning_reason"],
+            "numeric_expression_not_comparable",
+        )
 
     def test_review_rejects_attempt_to_return_timeline(self) -> None:
         class ReviewingTranslator(ResultTranslator):

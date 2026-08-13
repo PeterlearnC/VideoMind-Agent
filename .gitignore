@@ -37,6 +37,7 @@ Thumbs.db
 data/videos/*
 data/audio/*
 data/subtitles/*
+/backend/data/performance/*
 !data/videos/.gitkeep
 !data/audio/.gitkeep
 !data/subtitles/.gitkeep

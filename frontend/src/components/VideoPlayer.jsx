@@ -8,6 +8,11 @@ import {
   setMediaPlaybackRate,
 } from "../playbackRate.js";
 import { createPlaybackClock, findActiveCueId } from "../subtitleTiming.js";
+import {
+  DEFAULT_SUBTITLE_POSITION,
+  loadSubtitlePreferences,
+  saveSubtitlePreferences,
+} from "../subtitlePreferences.js";
 
 export default function VideoPlayer({
   src,
@@ -29,7 +34,14 @@ export default function VideoPlayer({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [displayMode, setDisplayMode] = useState("bilingual");
-  const [subtitleFontSize, setSubtitleFontSize] = useState(20);
+  const [subtitlePreferences, setSubtitlePreferences] = useState(
+    loadSubtitlePreferences,
+  );
+  const { position: subtitlePosition, backgroundOpacity, fontSize: subtitleFontSize } = subtitlePreferences;
+
+  useEffect(() => {
+    saveSubtitlePreferences(subtitlePreferences);
+  }, [subtitlePreferences]);
 
   useEffect(() => {
     publishedActiveCueIdRef.current = undefined;
@@ -166,6 +178,12 @@ export default function VideoPlayer({
           enabled={subtitlesEnabled}
           displayMode={displayMode}
           fontSize={subtitleFontSize}
+          position={subtitlePosition}
+          backgroundOpacity={backgroundOpacity}
+          onPositionChange={(position) => setSubtitlePreferences((current) => ({
+            ...current,
+            position,
+          }))}
         />
       </div>
       <SubtitleControl
@@ -176,7 +194,19 @@ export default function VideoPlayer({
         disabled={subtitles.length === 0}
         onEnabledChange={setSubtitlesEnabled}
         onDisplayModeChange={setDisplayMode}
-        onFontSizeChange={setSubtitleFontSize}
+        backgroundOpacity={backgroundOpacity}
+        onBackgroundOpacityChange={(backgroundOpacity) => setSubtitlePreferences((current) => ({
+          ...current,
+          backgroundOpacity,
+        }))}
+        onResetPosition={() => setSubtitlePreferences((current) => ({
+          ...current,
+          position: { ...DEFAULT_SUBTITLE_POSITION },
+        }))}
+        onFontSizeChange={(fontSize) => setSubtitlePreferences((current) => ({
+          ...current,
+          fontSize,
+        }))}
         onPlaybackRateChange={handlePlaybackRateChange}
         sourceLanguage={sourceLanguage}
         targetLanguage={targetLanguage}

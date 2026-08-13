@@ -6,11 +6,14 @@ export default function SubtitleControl({
   displayMode,
   fontSize,
   playbackRate,
+  backgroundOpacity,
   disabled = false,
   onEnabledChange,
   onDisplayModeChange,
   onFontSizeChange,
   onPlaybackRateChange,
+  onBackgroundOpacityChange,
+  onResetPosition,
   sourceLanguage,
   targetLanguage,
 }) {
@@ -82,6 +85,33 @@ export default function SubtitleControl({
         />
         <output>{fontSize}px</output>
       </label>
+
+      <label className="subtitle-background">
+        <span>背景</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="5"
+          value={backgroundOpacity}
+          disabled={disabled || !enabled}
+          aria-label="字幕背景透明度"
+          aria-valuetext={`${backgroundOpacity}%`}
+          onChange={(event) => onBackgroundOpacityChange(Number(event.target.value))}
+        />
+        <output>{backgroundOpacity}%</output>
+      </label>
+
+      <div className="subtitle-position-control">
+        <span>位置</span>
+        <button
+          type="button"
+          disabled={disabled || !enabled}
+          onClick={onResetPosition}
+        >
+          恢复默认
+        </button>
+      </div>
     </div>
   );
 }

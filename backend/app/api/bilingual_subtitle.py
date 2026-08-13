@@ -15,6 +15,11 @@ from app.services.translation_service import (
     TranslationConfigurationError,
     TranslationError,
 )
+from app.services.performance_metrics import (
+    activate_run,
+    create_run,
+    reset_active_run,
+)
 
 
 router = APIRouter(tags=["subtitle"])
@@ -26,6 +31,30 @@ async def generate_bilingual_subtitle_api(
     target_language: Annotated[str | None, Form()] = None,
 ) -> dict[str, str]:
     """Detect, transcribe, translate, and create a bilingual SRT."""
+    metrics = create_run(
+        video_id="bilingual",
+        video_name=getattr(file, "filename", None),
+    )
+    token = activate_run(metrics) if metrics else None
+    pipeline_error: BaseException | None = None
+    try:
+        return await _run_bilingual_pipeline(file, target_language, metrics)
+    except BaseException as exc:
+        pipeline_error = exc
+        raise
+    finally:
+        if metrics:
+            metrics.finish_pipeline(pipeline_error is None, pipeline_error)
+            metrics.save_report()
+        if token is not None:
+            reset_active_run(token)
+
+
+async def _run_bilingual_pipeline(
+    file: UploadFile,
+    target_language: str | None,
+    metrics,
+) -> dict[str, str]:
     transcription = await transcribe_video(file)
     try:
         source_language = require_supported_language(
@@ -39,6 +68,13 @@ async def generate_bilingual_subtitle_api(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+    if metrics:
+        metrics.set_video(
+            video_id="bilingual",
+            video_name=transcription["filename"],
+            source_language=source_language,
+            target_language=resolved_target,
+        )
     try:
         subtitle_path = await asyncio.to_thread(
             generate_bilingual_subtitle,

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from os import PathLike
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -11,6 +12,8 @@ from app.services import translation_service
 from app.services.transcript_correction_service import correct_transcript_with_fallback
 from app.services.transcript_correction_service import TranscriptCorrectionResult
 from app.services.subtitle_service import _format_srt_timestamp
+from app.services.performance_metrics import get_active_run, map_correction_metadata
+from app.config.translation import translation_batch_size
 
 
 DEFAULT_OUTPUT_PATH = Path("bilingual.srt")
@@ -63,38 +66,47 @@ def generate_bilingual_subtitle(
 ) -> Path:
     """Correct Whisper text, translate it, and write SRT plus structured JSON."""
     source_segments = list(segments)
+    metrics = get_active_run()
     pipeline_logger.info("[Pipeline] entering transcript correction")
     pipeline_logger.info("[Pipeline] raw segments=%d", len(source_segments))
     pipeline_logger.info(
         "[Pipeline] correction enabled=%s",
         str(transcript_correction_enabled()).lower(),
     )
-    correction_result = correct_transcript_with_fallback(
-        source_segments, source_language
-    )
-    if isinstance(correction_result, TranscriptCorrectionResult):
-        corrected_segments = correction_result.segments
-        correction_metadata = correction_result.metadata
-    else:
+    def run_correction() -> tuple[list[Mapping[str, Any]], Mapping[str, Any]]:
+        correction_result = correct_transcript_with_fallback(
+            source_segments, source_language
+        )
+        if isinstance(correction_result, TranscriptCorrectionResult):
+            return correction_result.segments, correction_result.metadata
+        corrected = correction_result
         # Preserve compatibility with existing provider/test doubles.
-        corrected_segments = correction_result
-        correction_metadata = {
+        return corrected, {
             "enabled": True,
             "attempted": True,
             "success": True,
             "fallback": False,
             "changed_segments": sum(
-                item["raw_text"] != item["corrected_text"]
-                for item in corrected_segments
+                item["raw_text"] != item["corrected_text"] for item in corrected
             ),
-            "total_segments": len(corrected_segments),
-            "batches": 1 if corrected_segments else 0,
+            "total_segments": len(corrected),
+            "batches": 1 if corrected else 0,
             "failed_batches": 0,
             "retry_batches": 0,
             "retry_successes": 0,
             "zero_change_warning": False,
             "error": None,
         }
+
+    if metrics:
+        with metrics.stage("transcript_correction") as correction_stage:
+            corrected_segments, correction_metadata = run_correction()
+            correction_stage.update(**map_correction_metadata(correction_metadata))
+            correction_stage.mark_success(
+                bool(correction_metadata.get("success", True))
+            )
+    else:
+        corrected_segments, correction_metadata = run_correction()
     pipeline_logger.info("[Pipeline] transcript correction finished")
     pipeline_logger.info(
         "[Pipeline] changed_segments=%d",
@@ -113,26 +125,70 @@ def generate_bilingual_subtitle(
         }
         for segment in corrected_segments
     ]
-    translated_segments = translation_service.translate_segments(
-        translation_input,
-        source_language=source_language,
-        target_language=target_language,
-    )
-    destination = generate_bilingual_srt(
-        translation_input,
-        translated_segments,
-        output_path,
-        monolingual=source_language == target_language,
-    )
-    _write_structured_subtitles(
-        destination,
-        corrected_segments,
-        translated_segments,
-        source_language,
-        target_language,
-        correction_metadata,
-        video_name,
-    )
+    translation_details = {
+        "total_cues": len(translation_input),
+        "batch_count": (
+            math.ceil(
+                sum(bool(str(item["text"]).strip()) for item in translation_input)
+                / translation_batch_size()
+            )
+            if translation_input else 0
+        ),
+        "source_language": source_language,
+        "target_language": target_language,
+    }
+    if source_language == target_language:
+        if metrics:
+            metrics.skip_stage(
+                "translation", "same_language", **translation_details
+            )
+        translated_segments = translation_service.translate_segments(
+            translation_input,
+            source_language=source_language,
+            target_language=target_language,
+        )
+    elif metrics:
+        with metrics.stage("translation", **translation_details):
+            translated_segments = translation_service.translate_segments(
+                translation_input,
+                source_language=source_language,
+                target_language=target_language,
+            )
+    else:
+        translated_segments = translation_service.translate_segments(
+            translation_input,
+            source_language=source_language,
+            target_language=target_language,
+        )
+    if metrics:
+        with metrics.stage("subtitle_generation") as subtitle_stage:
+            destination = generate_bilingual_srt(
+                translation_input, translated_segments, output_path,
+                monolingual=source_language == target_language,
+            )
+            _write_structured_subtitles(
+                destination, corrected_segments, translated_segments,
+                source_language, target_language, correction_metadata, video_name,
+            )
+            metrics.set_timeline(translation_input)
+            timeline = metrics.data.get("timeline_validation") or {}
+            subtitle_stage.update(
+                cue_count=len(translation_input),
+                first_cue_start=timeline.get("first_start"),
+                last_cue_end=timeline.get("last_end"),
+                timeline_coverage_seconds=timeline.get(
+                    "timeline_coverage_seconds"
+                ),
+            )
+    else:
+        destination = generate_bilingual_srt(
+            translation_input, translated_segments, output_path,
+            monolingual=source_language == target_language,
+        )
+        _write_structured_subtitles(
+            destination, corrected_segments, translated_segments,
+            source_language, target_language, correction_metadata, video_name,
+        )
     return destination
 
 
@@ -146,7 +202,11 @@ def _write_structured_subtitles(
     video_name: str | None = None,
 ) -> Path:
     """Persist raw/corrected/translated text without encoding it into SRT metadata."""
-    translated_by_id = {item["id"]: str(item["text"]) for item in translated_segments}
+    translated_items_by_id = {item["id"]: item for item in translated_segments}
+    translated_by_id = {
+        item_id: str(item["text"])
+        for item_id, item in translated_items_by_id.items()
+    }
     structured = {
         "source_language": source_language,
         "target_language": target_language,
@@ -175,6 +235,14 @@ def _write_structured_subtitles(
                     target_language: translated_by_id[item["id"]]
                 },
                 "translated_text": translated_by_id[item["id"]],
+                "translation_validation_warning": bool(
+                    translated_items_by_id[item["id"]].get("validation_warning")
+                ),
+                "translation_validation_warning_reason": (
+                    translated_items_by_id[item["id"]].get(
+                        "validation_warning_reason"
+                    )
+                ),
                 "edited_source_text": None,
                 "edited_translated_text": None,
                 "source": item["corrected_text"],
