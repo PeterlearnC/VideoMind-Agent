@@ -59,6 +59,7 @@ def generate_bilingual_subtitle(
     source_language: str,
     output_path: str | PathLike[str] = DEFAULT_OUTPUT_PATH,
     target_language: str = "zh",
+    video_name: str | None = None,
 ) -> Path:
     """Correct Whisper text, translate it, and write SRT plus structured JSON."""
     source_segments = list(segments)
@@ -89,6 +90,8 @@ def generate_bilingual_subtitle(
             "total_segments": len(corrected_segments),
             "batches": 1 if corrected_segments else 0,
             "failed_batches": 0,
+            "retry_batches": 0,
+            "retry_successes": 0,
             "zero_change_warning": False,
             "error": None,
         }
@@ -128,6 +131,7 @@ def generate_bilingual_subtitle(
         source_language,
         target_language,
         correction_metadata,
+        video_name,
     )
     return destination
 
@@ -139,6 +143,7 @@ def _write_structured_subtitles(
     source_language: str,
     target_language: str,
     correction_metadata: Mapping[str, Any],
+    video_name: str | None = None,
 ) -> Path:
     """Persist raw/corrected/translated text without encoding it into SRT metadata."""
     translated_by_id = {item["id"]: str(item["text"]) for item in translated_segments}
@@ -146,6 +151,19 @@ def _write_structured_subtitles(
         "source_language": source_language,
         "target_language": target_language,
         "correction": dict(correction_metadata),
+        "metadata": {
+            "correction": dict(correction_metadata),
+            "workspace": {
+                "video_name": video_name,
+                "source_language": source_language,
+                "target_language": target_language,
+            },
+            "editor": {
+                "edited_cues": 0,
+                "last_modified": None,
+                "version": 1,
+            },
+        },
         "subtitles": [
             {
                 "id": item["id"],
@@ -157,6 +175,8 @@ def _write_structured_subtitles(
                     target_language: translated_by_id[item["id"]]
                 },
                 "translated_text": translated_by_id[item["id"]],
+                "edited_source_text": None,
+                "edited_translated_text": None,
                 "source": item["corrected_text"],
                 "translation": (
                     ""

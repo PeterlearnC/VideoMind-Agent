@@ -7,6 +7,7 @@ from unittest.mock import patch
 import requests
 
 from app.services.transcript_correction_service import (
+    CorrectionResponseError,
     DeepSeekTranscriptCorrector,
     TranscriptCorrectionError,
     correct_transcript,
@@ -109,7 +110,102 @@ class GlobalContext400ThenCorrector:
         ]
 
 
+class RetryCorrector:
+    def __init__(self, invalid_result, retry_result) -> None:
+        self.invalid_result = invalid_result
+        self.retry_result = retry_result
+        self.retry_calls = 0
+
+    def correct_batch(self, language, current, *args):
+        return self.invalid_result(current)
+
+    def retry_correction_batch(self, language, current, *args):
+        self.retry_calls += 1
+        return self.retry_result(current)
+
+
 class TranscriptCorrectionTests(unittest.TestCase):
+    def test_correction_request_uses_json_mode_zero_temperature_and_strict_prompt(self) -> None:
+        session = FakeSession()
+        provider = DeepSeekTranscriptCorrector(api_key="test-key", session=session)
+        provider.correct_batch(
+            "en", [{"id": 7, "text": "raw"}], [], [], [], {}
+        )
+
+        payload = session.requests[0]["json"]
+        prompt = payload["messages"][0]["content"]
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["temperature"], 0)
+        self.assertNotIn("max_tokens", payload)
+        for contract in (
+            "exactly one valid JSON object",
+            "Do not use markdown",
+            "exactly once",
+            "non-empty string",
+            "Do not output start or end",
+        ):
+            self.assertIn(contract, prompt)
+
+    def test_layered_parser_accepts_direct_fenced_and_explanation_wrapped_json(self) -> None:
+        body = '{"corrections":[{"id":1,"corrected_text":"fixed"}]}'
+        variants = [body, f"  {body}\n", f"```json\n{body}\n```", f"Result follows:\n{body}\nDone."]
+        for content in variants:
+            with self.subTest(content=content):
+                self.assertEqual(
+                    DeepSeekTranscriptCorrector._parse_corrections(content),
+                    [{"id": 1, "corrected_text": "fixed"}],
+                )
+
+    def test_parser_distinguishes_truncated_malformed_and_schema_errors(self) -> None:
+        invalid = [
+            ('{"corrections":[{"id":1', "truncated JSON"),
+            ("not-json", "malformed JSON"),
+            ('{"items":[]}', "invalid JSON schema"),
+        ]
+        for content, message in invalid:
+            with self.subTest(content=content), self.assertRaisesRegex(
+                CorrectionResponseError, message
+            ):
+                DeepSeekTranscriptCorrector._parse_corrections(content)
+
+    def test_parser_does_not_relax_segment_schema(self) -> None:
+        content = json.dumps({
+            "corrections": [{
+                "id": 1, "corrected_text": "fixed", "start": 0, "end": 1,
+            }]
+        })
+        with self.assertRaisesRegex(CorrectionResponseError, "invalid JSON schema"):
+            DeepSeekTranscriptCorrector._parse_corrections(content)
+
+    def test_invalid_json_retries_once_then_preserves_whisper_timeline(self) -> None:
+        class InvalidJsonThenSuccess:
+            def __init__(self):
+                self.retry_calls = 0
+
+            def correct_batch(self, *args):
+                raise CorrectionResponseError(
+                    "DeepSeek correction response contains malformed JSON."
+                )
+
+            def retry_correction_batch(self, language, current, *args):
+                self.retry_calls += 1
+                return [
+                    {"id": item["id"], "corrected_text": f"fixed {item['text']}"}
+                    for item in current
+                ]
+
+        source = [{"id": 5, "start": 1.25, "end": 3.75, "text": "raw"}]
+        provider = InvalidJsonThenSuccess()
+        result = correct_transcript_with_metadata(source, "en", provider)
+
+        self.assertEqual(provider.retry_calls, 1)
+        self.assertEqual(result.metadata["retry_batches"], 1)
+        self.assertEqual(result.metadata["retry_successes"], 1)
+        self.assertFalse(result.metadata["fallback"])
+        self.assertEqual(result.segments[0]["start"], 1.25)
+        self.assertEqual(result.segments[0]["end"], 3.75)
+        self.assertEqual(result.segments[0]["corrected_text"], "fixed raw")
+
     def test_correction_preserves_ids_count_and_whisper_timeline(self) -> None:
         source = [
             {"id": 4, "start": 1.25, "end": 3.75, "text": "raw one"},
@@ -232,7 +328,9 @@ class TranscriptCorrectionTests(unittest.TestCase):
         result = correct_transcript_with_metadata(source, "en", corrector)
 
         self.assertTrue(result.metadata["fallback"])
-        self.assertIn("invalid correction JSON", result.metadata["error"])
+        self.assertIn("malformed JSON", result.metadata["error"])
+        self.assertEqual(result.metadata["retry_batches"], 1)
+        self.assertEqual(result.metadata["retry_successes"], 0)
         self.assertEqual(result.segments[0]["corrected_text"], "raw")
 
     def test_zero_change_response_is_success_with_warning(self) -> None:
@@ -410,6 +508,123 @@ class TranscriptCorrectionTests(unittest.TestCase):
         self.assertEqual(result.metadata["changed_segments"], 1)
         self.assertIn("global context unavailable", result.metadata["error"])
         self.assertIn("continuing with batch context only", "\n".join(logs.output))
+
+    def test_missing_extra_and_duplicate_ids_retry_success(self) -> None:
+        source = [
+            {"id": 10, "start": 1.25, "end": 2.5, "text": "raw ten"},
+            {"id": 11, "start": 2.5, "end": 4.75, "text": "raw eleven"},
+        ]
+        invalid_results = {
+            "missing": lambda current: [
+                {"id": current[0]["id"], "corrected_text": "first"}
+            ],
+            "extra": lambda current: [
+                *[
+                    {"id": item["id"], "corrected_text": item["text"]}
+                    for item in current
+                ],
+                {"id": 999, "corrected_text": "context leak"},
+            ],
+            "duplicate": lambda current: [
+                {"id": current[0]["id"], "corrected_text": "first"},
+                {"id": current[0]["id"], "corrected_text": "duplicate"},
+            ],
+        }
+
+        for name, invalid_result in invalid_results.items():
+            with self.subTest(name=name):
+                provider = RetryCorrector(
+                    invalid_result,
+                    lambda current: [
+                        {
+                            "id": item["id"],
+                            "corrected_text": f"retry: {item['text']}",
+                        }
+                        for item in current
+                    ],
+                )
+                result = correct_transcript_with_metadata(source, "en", provider)
+
+                self.assertEqual(provider.retry_calls, 1)
+                self.assertEqual(result.metadata["retry_batches"], 1)
+                self.assertEqual(result.metadata["retry_successes"], 1)
+                self.assertEqual(result.metadata["failed_batches"], 0)
+                self.assertFalse(result.metadata["fallback"])
+                self.assertEqual([item["id"] for item in result.segments], [10, 11])
+                self.assertEqual(result.segments[0]["start"], 1.25)
+                self.assertEqual(result.segments[1]["end"], 4.75)
+
+    def test_retry_request_hides_context_ids_and_lists_exact_batch_ids(self) -> None:
+        session = FakeSession()
+        provider = DeepSeekTranscriptCorrector(api_key="test-key", session=session)
+
+        provider.retry_correction_batch(
+            "en",
+            [{"id": 40, "text": "current forty"}, {"id": 41, "text": "current forty-one"}],
+            [{"id": 39, "text": "previous"}],
+            [{"id": 42, "text": "next"}],
+            {"topic": "test"},
+        )
+
+        request = session.requests[0]["json"]
+        prompt = request["messages"][0]["content"]
+        content = json.loads(request["messages"][1]["content"])
+        self.assertEqual(content["required_ids"], [40, 41])
+        self.assertEqual(content["previous_context"], [{"text": "previous"}])
+        self.assertEqual(content["next_context"], [{"text": "next"}])
+        self.assertNotIn("global_transcript", content)
+        self.assertIn("exactly these IDs", prompt)
+
+    def test_retry_failure_falls_back_only_current_batch(self) -> None:
+        class TwoBatchCorrector:
+            def __init__(self):
+                self.batch_calls = 0
+                self.retry_calls = 0
+
+            def correct_batch(self, language, current, *args):
+                self.batch_calls += 1
+                if self.batch_calls == 1:
+                    return [
+                        {"id": item["id"], "corrected_text": f"saved: {item['text']}"}
+                        for item in current
+                    ]
+                return [{"id": current[0]["id"], "corrected_text": "missing second"}]
+
+            def retry_correction_batch(self, language, current, *args):
+                self.retry_calls += 1
+                return [
+                    {"id": current[0]["id"], "corrected_text": "still missing"},
+                    {"id": 999, "corrected_text": "extra"},
+                ]
+
+        source = [
+            {"id": index, "start": index + 0.1, "end": index + 0.9, "text": f"raw {index}"}
+            for index in range(4)
+        ]
+        provider = TwoBatchCorrector()
+        with patch.dict(
+            "os.environ", {"TRANSCRIPT_CORRECTION_BATCH_SIZE": "2"}
+        ), self.assertLogs(
+            "uvicorn.error.transcript_correction", level="WARNING"
+        ) as logs:
+            result = correct_transcript_with_metadata(source, "en", provider)
+
+        self.assertEqual(provider.retry_calls, 1)
+        self.assertEqual(result.metadata["retry_batches"], 1)
+        self.assertEqual(result.metadata["retry_successes"], 0)
+        self.assertEqual(result.metadata["failed_batches"], 1)
+        self.assertTrue(result.metadata["fallback"])
+        self.assertEqual(
+            [item["corrected_text"] for item in result.segments[:2]],
+            ["saved: raw 0", "saved: raw 1"],
+        )
+        self.assertEqual(
+            [item["corrected_text"] for item in result.segments[2:]],
+            ["raw 2", "raw 3"],
+        )
+        output = "\n".join(logs.output)
+        self.assertIn("retry FAILED", output)
+        self.assertIn("fallback to raw/corrected baseline", output)
 
 
 if __name__ == "__main__":

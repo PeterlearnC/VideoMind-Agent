@@ -46,6 +46,7 @@ async def generate_bilingual_subtitle_api(
             source_language,
             BILINGUAL_SUBTITLE_PATH,
             resolved_target,
+            transcription["filename"],
         )
     except TranslationConfigurationError as exc:
         raise HTTPException(

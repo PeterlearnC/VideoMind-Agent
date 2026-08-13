@@ -108,10 +108,14 @@ class VideoSummaryAgent:
         hours, minutes = divmod(minutes, 60)
         timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         source = str(
-            cue.get("corrected_text", cue.get("source_text", cue.get("source", "")))
+            cue.get("edited_source_text")
+            if cue.get("edited_source_text") is not None
+            else cue.get("corrected_text", cue.get("source_text", cue.get("source", "")))
         ).strip()
         translation = str(
-            cue.get("translated_text", cue.get("translation", ""))
+            cue.get("edited_translated_text")
+            if cue.get("edited_translated_text") is not None
+            else cue.get("translated_text", cue.get("translation", ""))
         ).strip()
         text = source or translation
         if source and translation:

@@ -91,6 +91,19 @@ class VideoQAAgentTests(unittest.TestCase):
         self.assertIn("correct", prompt)
         self.assertNotIn("wrong", prompt)
 
+    def test_prefers_human_edited_transcript(self) -> None:
+        session = FakeSession()
+        agent = VideoQAAgent(api_key="test-key", session=session)
+        agent.answer("demo", "What is said?", [{
+            "id": 3, "start": 2,
+            "corrected_text": "AI source", "translated_text": "AI translation",
+            "edited_source_text": "Human source",
+            "edited_translated_text": "Human translation",
+        }])
+        prompt = session.requests[0]["json"]["messages"][1]["content"]
+        self.assertIn("Human source / Human translation", prompt)
+        self.assertNotIn("AI source", prompt)
+
 
 class VideoQAApiTests(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.qa.get_subtitle", new_callable=AsyncMock)

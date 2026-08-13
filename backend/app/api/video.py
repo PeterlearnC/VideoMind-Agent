@@ -1,11 +1,14 @@
 """Video upload API."""
 
 import asyncio
+import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.services.subtitle_service import generate_srt
 from app.services.whisper_service import transcribe_audio
@@ -18,6 +21,31 @@ VIDEO_DIR = PROJECT_ROOT / "data" / "videos"
 AUDIO_DIR = PROJECT_ROOT / "data" / "audio"
 SUBTITLE_DIR = PROJECT_ROOT / "data" / "subtitles"
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}
+VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@router.get("/video/{video_id}")
+async def get_workspace_video(video_id: str) -> FileResponse:
+    """Return the saved source video associated with a subtitle workspace."""
+    if VIDEO_ID_PATTERN.fullmatch(video_id) is None:
+        raise HTTPException(status_code=400, detail="Invalid video_id.")
+    subtitle_document = SUBTITLE_DIR / f"{video_id}.json"
+    if not subtitle_document.is_file():
+        raise HTTPException(status_code=404, detail="Workspace video not found.")
+    try:
+        payload = json.loads(subtitle_document.read_text(encoding="utf-8"))
+        video_name = payload.get("metadata", {}).get("workspace", {}).get("video_name")
+        if not isinstance(video_name, str) or not video_name.strip():
+            raise ValueError("Missing workspace video name.")
+        safe_name = Path(video_name).name
+        if safe_name != video_name or Path(safe_name).suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS:
+            raise ValueError("Invalid workspace video name.")
+        video_path = VIDEO_DIR / safe_name
+    except (AttributeError, json.JSONDecodeError, OSError, UnicodeError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Workspace video not found.") from exc
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail="Workspace video not found.")
+    return FileResponse(video_path, media_type="video/mp4")
 
 
 def _extract_audio(video_path: Path, audio_path: Path) -> None:

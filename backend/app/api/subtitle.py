@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.video import SUBTITLE_DIR
+from app.services.subtitle_editor_service import enrich_cue
 
 
 router = APIRouter(tags=["subtitle"])
@@ -78,7 +79,14 @@ async def get_subtitle(video_id: str) -> dict[str, object]:
         structured_path = subtitle_path.with_suffix(".json")
         if structured_path.is_file():
             structured = json.loads(structured_path.read_text(encoding="utf-8"))
-            subtitles = structured["subtitles"]
+            subtitles = [
+                enrich_cue(
+                    cue,
+                    structured.get("source_language"),
+                    structured.get("target_language"),
+                )
+                for cue in structured["subtitles"]
+            ]
         else:
             structured = {}
             subtitles = parse_srt(subtitle_path.read_text(encoding="utf-8-sig"))
@@ -93,5 +101,6 @@ async def get_subtitle(video_id: str) -> dict[str, object]:
         "source_language": structured.get("source_language"),
         "target_language": structured.get("target_language"),
         "correction": structured.get("correction"),
+        "metadata": structured.get("metadata", {}),
         "subtitles": subtitles,
     }

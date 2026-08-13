@@ -15,16 +15,24 @@ export default function SummaryPanel({
   currentTime = 0,
   onSeekToTime,
   outputLanguage = "zh",
+  subtitleRevision = 0,
+  workspaceRestored = false,
 }) {
   const [status, setStatus] = useState("idle");
   const [summary, setSummary] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [generatedRevision, setGeneratedRevision] = useState(0);
 
   useEffect(() => {
     setStatus("idle");
     setSummary(null);
     setErrorMessage("");
+    setGeneratedRevision(0);
   }, [videoId]);
+
+  useEffect(() => {
+    if (subtitleRevision === 0) setGeneratedRevision(0);
+  }, [subtitleRevision]);
 
   async function generateSummary() {
     if (!videoId || status === "loading") return;
@@ -42,6 +50,7 @@ export default function SummaryPanel({
         throw new Error(payload?.detail || "视频摘要生成失败。");
       }
       setSummary(payload);
+      setGeneratedRevision(subtitleRevision);
       setStatus("success");
     } catch (error) {
       setStatus("error");
@@ -55,7 +64,7 @@ export default function SummaryPanel({
     <section className="summary-panel" aria-labelledby="summary-title">
       <div className="summary-heading">
         <div>
-          <span className="section-number">04</span>
+          <span className="section-number">05</span>
           <div>
             <span className="summary-kicker">DeepSeek Video Agent</span>
             <h2 id="summary-title">AI 视频摘要</h2>
@@ -71,9 +80,15 @@ export default function SummaryPanel({
         </button>
       </div>
 
+      {subtitleRevision > generatedRevision && (
+        <p className="linked-content-notice">字幕已修改，重新生成摘要后将使用最新人工字幕。</p>
+      )}
+
       {status === "idle" && (
         <p className="summary-placeholder">
-          Agent 将读取时间轴字幕，提炼视频概述、核心观点与章节结构。
+          {workspaceRestored
+            ? "字幕工作区已恢复，可重新生成摘要。"
+            : "Agent 将读取时间轴字幕，提炼视频概述、核心观点与章节结构。"}
         </p>
       )}
       {status === "loading" && (

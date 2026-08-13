@@ -24,14 +24,14 @@ export default function SubtitleTrack({
       aria-live="polite"
       aria-atomic="true"
     >
-      {showSource && (activeSubtitle.source_text || activeSubtitle.source) && (
+      {showSource && (activeSubtitle.edited_source_text ?? activeSubtitle.corrected_text ?? activeSubtitle.source_text ?? activeSubtitle.source) && (
         <span className="subtitle-source">
-          {activeSubtitle.source_text || activeSubtitle.source}
+          {activeSubtitle.edited_source_text ?? activeSubtitle.corrected_text ?? activeSubtitle.source_text ?? activeSubtitle.source}
         </span>
       )}
-      {showTranslation && (activeSubtitle.translated_text || activeSubtitle.translation) && (
+      {showTranslation && (activeSubtitle.edited_translated_text ?? activeSubtitle.translated_text ?? activeSubtitle.translation) && (
         <span className="subtitle-translation">
-          {activeSubtitle.translated_text || activeSubtitle.translation}
+          {activeSubtitle.edited_translated_text ?? activeSubtitle.translated_text ?? activeSubtitle.translation}
         </span>
       )}
     </div>

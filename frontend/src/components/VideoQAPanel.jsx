@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export default function VideoQAPanel({ videoId, onSeekToTime }) {
+export default function VideoQAPanel({ videoId, onSeekToTime, subtitleRevision = 0, workspaceRestored = false }) {
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState("idle");
   const [history, setHistory] = useState([]);
@@ -85,7 +85,7 @@ export default function VideoQAPanel({ videoId, onSeekToTime }) {
     <section className="qa-panel" aria-labelledby="qa-title">
       <div className="qa-heading">
         <div>
-          <span className="section-number">05</span>
+          <span className="section-number">06</span>
           <div>
             <span className="summary-kicker">Grounded Video Q&amp;A</span>
             <h2 id="qa-title">AI 视频问答</h2>
@@ -97,6 +97,14 @@ export default function VideoQAPanel({ videoId, onSeekToTime }) {
           </button>
         )}
       </div>
+
+      {workspaceRestored && (
+        <p className="linked-content-notice">工作区已恢复，历史问答未持久化。</p>
+      )}
+
+      {subtitleRevision > 0 && (
+        <p className="linked-content-notice">字幕已更新。之后的新问题将使用最新字幕内容，历史回答不会自动重算。</p>
+      )}
 
       <form className="qa-form" onSubmit={submitQuestion}>
         <label htmlFor="video-question">基于当前视频字幕提问</label>

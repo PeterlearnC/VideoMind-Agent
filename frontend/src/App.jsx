@@ -4,11 +4,33 @@ import UploadPanel from "./components/UploadPanel";
 import VideoPlayer from "./components/VideoPlayer";
 import SummaryPanel from "./components/SummaryPanel";
 import VideoQAPanel from "./components/VideoQAPanel";
+import SubtitleEditor from "./components/SubtitleEditor";
 import { languageLabel } from "./languages";
+import {
+  confirmRegeneration,
+  createRequestGate,
+  regenerationFailed,
+  regenerationSucceeded,
+} from "./regeneration";
 
 const API_ENDPOINT = "/api/generate-bilingual-subtitle";
-const DOWNLOAD_ENDPOINT = "/downloads/bilingual.srt";
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+const ACTIVE_WORKSPACE_KEY = "videomind.activeWorkspace";
+
+function playerSubtitles(cues, sourceLanguage, targetLanguage) {
+  return cues.map((subtitle) => ({
+    ...subtitle,
+    source_language: sourceLanguage,
+    target_language: targetLanguage,
+    source_text: subtitle.effective_source_text ?? subtitle.source_text,
+    source: subtitle.effective_source_text ?? subtitle.source,
+    translated_text: subtitle.effective_translated_text ?? subtitle.translated_text,
+    translation: subtitle.effective_translated_text ?? subtitle.translation,
+    translations: {
+      [targetLanguage]: subtitle.effective_translated_text ?? subtitle.translated_text ?? "",
+    },
+  }));
+}
 
 const PROCESS_STEPS = [
   { title: "上传视频", detail: "安全传输 MP4 文件" },
@@ -144,9 +166,25 @@ export default function App() {
   const [resolvedTargetLanguage, setResolvedTargetLanguage] = useState("");
   const [seekRequest, setSeekRequest] = useState(null);
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
+  const [subtitleEditorDirtyCount, setSubtitleEditorDirtyCount] = useState(0);
+  const [subtitleRevision, setSubtitleRevision] = useState(0);
+  const [draftResetToken, setDraftResetToken] = useState(0);
+  const [workspaceRestoring, setWorkspaceRestoring] = useState(true);
+  const [workspaceRestored, setWorkspaceRestored] = useState(false);
+  const [workspaceVideoName, setWorkspaceVideoName] = useState("");
+  const [editorReloadToken, setEditorReloadToken] = useState(0);
   const playerRegionRef = useRef(null);
+  const generationGateRef = useRef(createRequestGate());
 
   const busy = status === "uploading" || status === "processing";
+  const hasWorkspace = Boolean(videoId && subtitles.length);
+
+  function confirmDiscardDrafts() {
+    if (!subtitleEditorDirtyCount) return true;
+    return window.confirm(
+      "你还有未保存的字幕修改。\n继续操作将丢失这些未保存内容。",
+    );
+  }
 
   function handleSeekToTime(startSeconds) {
     const targetTime = Number(startSeconds);
@@ -160,20 +198,72 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!file) {
-      setVideoUrl("");
-      return undefined;
-    }
+    if (!file) return undefined;
 
     const objectUrl = URL.createObjectURL(file);
     setVideoUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function restoreWorkspace() {
+      let saved;
+      try {
+        saved = JSON.parse(localStorage.getItem(ACTIVE_WORKSPACE_KEY) || "null");
+      } catch {
+        localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+      }
+      if (!saved?.videoId || typeof saved.videoId !== "string") {
+        if (!cancelled) setWorkspaceRestoring(false);
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/subtitle/editor/${encodeURIComponent(saved.videoId)}`,
+          { cache: "no-store" },
+        );
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (response.status === 404) localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+          throw new Error(payload?.detail || "无法恢复字幕工作区。");
+        }
+        if (cancelled) return;
+        const metadata = payload.metadata?.workspace || {};
+        const restoredSource = metadata.source_language || payload.source_language || saved.sourceLanguage || "";
+        const restoredTarget = metadata.target_language || payload.target_language || saved.targetLanguage || "";
+        const restoredName = metadata.video_name || saved.videoName || "已恢复视频";
+        setVideoId(saved.videoId);
+        setSourceLanguage(restoredSource);
+        setResolvedTargetLanguage(restoredTarget);
+        setTargetLanguage(restoredTarget);
+        setWorkspaceVideoName(restoredName);
+        setSubtitles(playerSubtitles(payload.subtitles || [], restoredSource, restoredTarget));
+        setVideoUrl(`/api/video/${encodeURIComponent(saved.videoId)}`);
+        setResult({
+          filename: restoredName,
+          downloadUrl: `/api/subtitle/${encodeURIComponent(saved.videoId)}/export`,
+        });
+        setStatus("success");
+        setWorkspaceRestored(true);
+      } catch (restoreError) {
+        if (!cancelled) {
+          setStatus("idle");
+          setErrorMessage(restoreError.message || "无法恢复字幕工作区。");
+        }
+      } finally {
+        if (!cancelled) setWorkspaceRestoring(false);
+      }
+    }
+    restoreWorkspace();
+    return () => { cancelled = true; };
+  }, []);
+
   function selectFile(candidate) {
     if (!candidate || busy) {
       return;
     }
+    if (!confirmDiscardDrafts()) return;
 
     const isMp4 =
       candidate.type === "video/mp4" ||
@@ -212,12 +302,17 @@ export default function App() {
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
+    setSubtitleRevision(0);
+    setDraftResetToken((value) => value + 1);
+    setWorkspaceRestored(false);
+    setWorkspaceVideoName("");
   }
 
   function clearFile() {
     if (busy) {
       return;
     }
+    if (!confirmDiscardDrafts()) return;
     setFile(null);
     setResult(null);
     setSubtitles([]);
@@ -227,13 +322,24 @@ export default function App() {
     setStatus("idle");
     setUploadProgress(0);
     setErrorMessage("");
+    setSubtitleRevision(0);
+    setDraftResetToken((value) => value + 1);
+    setVideoUrl("");
+    setWorkspaceRestored(false);
+    setWorkspaceVideoName("");
+    localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!file || busy) {
+    if ((!file && !hasWorkspace) || busy) {
       return;
     }
+    if (hasWorkspace && !confirmRegeneration(subtitleEditorDirtyCount, window.confirm)) return;
+    if (!generationGateRef.current.enter()) return;
+
+    setDraftResetToken((value) => value + 1);
+    setSubtitleEditorDirtyCount(0);
 
     setStatus("uploading");
     setUploadProgress(0);
@@ -241,7 +347,21 @@ export default function App() {
     setErrorMessage("");
 
     try {
-      const response = await requestBilingualSubtitle(file, {
+      let requestFile = file;
+      if (!requestFile) {
+        const videoResponse = await fetch(`/api/video/${encodeURIComponent(videoId)}`);
+        if (!videoResponse.ok) {
+          const payload = await videoResponse.json().catch(() => null);
+          throw new Error(payload?.detail || "无法读取当前视频，不能重新生成字幕。");
+        }
+        const videoBlob = await videoResponse.blob();
+        requestFile = new File(
+          [videoBlob],
+          workspaceVideoName || "workspace-video.mp4",
+          { type: videoBlob.type || "video/mp4" },
+        );
+      }
+      const response = await requestBilingualSubtitle(requestFile, {
         targetLanguage,
         onProgress: setUploadProgress,
         onUploadComplete: () => {
@@ -249,12 +369,12 @@ export default function App() {
           setStatus("processing");
         },
       });
-      const videoId = response.subtitle_file
+      const generatedVideoId = response.subtitle_file
         .split("/")
         .pop()
         .replace(/\.srt$/i, "");
       const subtitleResponse = await fetch(
-        `/api/subtitle/${encodeURIComponent(videoId)}`,
+        `/api/subtitle/editor/${encodeURIComponent(generatedVideoId)}`,
         { cache: "no-store" },
       );
       if (!subtitleResponse.ok) {
@@ -264,28 +384,38 @@ export default function App() {
       const subtitlePayload = await subtitleResponse.json();
       const detectedSource = response.source_language || response.language;
       const translatedTarget = response.target_language || "zh";
-      setSubtitles(
-        (subtitlePayload.subtitles || []).map((subtitle) => ({
-          ...subtitle,
-          source_language: detectedSource,
-          target_language: translatedTarget,
-          translations: {
-            [translatedTarget]:
-              subtitle.translated_text || subtitle.translation || "",
-          },
-        })),
+      const completed = regenerationSucceeded(
+        playerSubtitles(subtitlePayload.subtitles || [], detectedSource, translatedTarget),
       );
+      setSubtitles(completed.subtitles);
       setSourceLanguage(detectedSource);
       setResolvedTargetLanguage(translatedTarget);
-      setVideoId(videoId);
+      setVideoId(generatedVideoId);
       setResult({
         ...response,
-        downloadUrl: DOWNLOAD_ENDPOINT + "?generated=" + Date.now(),
+        downloadUrl:
+          `/api/subtitle/${encodeURIComponent(generatedVideoId)}/export?generated=` +
+          Date.now(),
       });
-      setStatus("success");
+      setStatus(completed.status);
+      setSubtitleEditorDirtyCount(completed.dirtyCount);
+      setSubtitleRevision(0);
+      setEditorReloadToken((value) => value + 1);
+      setWorkspaceVideoName(response.filename);
+      setWorkspaceRestored(false);
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify({
+        videoId: generatedVideoId,
+        videoName: response.filename,
+        sourceLanguage: detectedSource,
+        targetLanguage: translatedTarget,
+      }));
     } catch (error) {
-      setStatus("error");
-      setErrorMessage(error.message || "字幕生成失败，请稍后重试。");
+      const failed = regenerationFailed(subtitles, error.message);
+      setSubtitles(failed.subtitles);
+      setStatus(failed.status);
+      setErrorMessage(failed.errorMessage);
+    } finally {
+      generationGateRef.current.leave();
     }
   }
 
@@ -330,6 +460,7 @@ export default function App() {
       </section>
 
       <section className="workspace" aria-label="字幕生成工作区">
+        {workspaceRestoring && <div className="workspace-restoring" role="status">正在恢复最近的字幕工作区…</div>}
         <UploadPanel
           file={file}
           busy={busy}
@@ -341,6 +472,8 @@ export default function App() {
           onSubmit={handleSubmit}
           targetLanguage={targetLanguage}
           onTargetLanguageChange={setTargetLanguage}
+          workspaceVideoName={workspaceVideoName}
+          hasWorkspace={hasWorkspace}
         />
 
         <aside className="process-panel">
@@ -405,7 +538,7 @@ export default function App() {
         <VideoPlayer
           src={videoUrl}
           subtitles={subtitles}
-          title={file ? file.name : "视频预览"}
+          title={file ? file.name : workspaceVideoName || "视频预览"}
           seekRequest={seekRequest}
           onTimeChange={setPlayerCurrentTime}
           sourceLanguage={sourceLanguage}
@@ -413,17 +546,43 @@ export default function App() {
         />
       </div>
 
+      <SubtitleEditor
+        videoId={videoId}
+        currentTime={playerCurrentTime}
+        onSeekToTime={handleSeekToTime}
+        onDirtyChange={setSubtitleEditorDirtyCount}
+        onSaved={() => setSubtitleRevision((value) => value + 1)}
+        resetToken={draftResetToken}
+        reloadToken={editorReloadToken}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={resolvedTargetLanguage}
+        onSubtitlesChange={(nextSubtitles) => setSubtitles(
+          nextSubtitles.map((subtitle) => ({
+            ...subtitle,
+            source_language: sourceLanguage,
+            target_language: resolvedTargetLanguage,
+            source_text: subtitle.effective_source_text,
+            source: subtitle.effective_source_text,
+            translated_text: subtitle.effective_translated_text,
+            translation: subtitle.effective_translated_text,
+            translations: { [resolvedTargetLanguage]: subtitle.effective_translated_text },
+          })),
+        )}
+      />
+
       <SummaryPanel
         videoId={videoId}
         currentTime={playerCurrentTime}
         onSeekToTime={handleSeekToTime}
         outputLanguage={resolvedTargetLanguage || "zh"}
+        subtitleRevision={subtitleRevision}
+        workspaceRestored={workspaceRestored}
       />
 
-      <VideoQAPanel videoId={videoId} onSeekToTime={handleSeekToTime} />
+      <VideoQAPanel videoId={videoId} onSeekToTime={handleSeekToTime} subtitleRevision={subtitleRevision} workspaceRestored={workspaceRestored} />
 
       <footer>
-        <span>VideoMind Agent</span>
+          <span>VideoMind Agent · V0.7.1</span>
         <p>视频仅发送到你配置的本地后端服务。</p>
         <span>EN / 中文</span>
       </footer>

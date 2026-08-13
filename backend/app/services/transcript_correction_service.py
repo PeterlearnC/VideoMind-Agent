@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import re
 from typing import Any, Iterable, Mapping
 
 import requests
@@ -37,6 +38,10 @@ def _redact_secret(message: object, secret: str | None) -> str:
 
 class TranscriptCorrectionError(RuntimeError):
     """Raised when an ASR correction result is invalid or unavailable."""
+
+
+class CorrectionResponseError(TranscriptCorrectionError):
+    """A retryable model-output syntax or schema failure."""
 
 
 class CorrectedSegment(BaseModel):
@@ -128,8 +133,15 @@ class DeepSeekTranscriptCorrector:
             "translate, summarize, expand, change meaning, invent facts, delete important "
             "information, merge or split segments, change ids or order, or output "
             "timestamps. global_transcript/global_context and previous/next context are "
-            "read-only. Return every and only current_batch id. Return one JSON object "
-            "with a corrections array whose items contain only id and corrected_text."
+            "read-only. Do not modify facts or numbers unless context clearly proves an "
+            "ASR recognition error. Return exactly one valid JSON object and no other "
+            "text. Do not use markdown or ```json fences. Do not include explanations "
+            "before or after the JSON. The object must have exactly one corrections "
+            "array. Its length must equal the current_batch length. Return every and "
+            "only current_batch id, preserving each id exactly and exactly once. Every "
+            "corrected_text must be a non-empty string. Each item must contain only id "
+            "and corrected_text. Do not output start or end. Required shape: "
+            '{"corrections":[{"id":0,"corrected_text":"..."}]}.'
         )
         request_content = {
             "detected_language": detected_language,
@@ -140,6 +152,45 @@ class DeepSeekTranscriptCorrector:
             "next_context": next_context,
         }
         content = self._request(prompt, request_content, "transcript correction")
+        return self._parse_corrections(content)
+
+    def retry_correction_batch(
+        self,
+        detected_language: str,
+        current_batch: list[dict[str, Any]],
+        previous_context: list[dict[str, Any]],
+        next_context: list[dict[str, Any]],
+        global_context: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Retry an invalid model response with an explicit, isolated contract."""
+        required_ids = [item["id"] for item in current_batch]
+        prompt = (
+            "You are an ASR Transcript Proofreader. This is a retry because the "
+            "previous response violated the required JSON or segment contract. "
+            "Return exactly one valid JSON object and no other text. Do not use markdown "
+            "or ```json fences. Do not include any explanation. You MUST return exactly "
+            f"these IDs and no others: {json.dumps(required_ids, ensure_ascii=False)}. "
+            "Return every listed id exactly once. Do not return previous_context ids. "
+            "Do not return next_context ids. Do not return global transcript ids outside "
+            "current_batch. Do not change id values, omit any id, or duplicate any id. "
+            "The corrections array length MUST equal the current_batch length. Every "
+            "corrected_text must be a non-empty string. Output only corrections for "
+            "current_batch. Each item contains only id and corrected_text; never output "
+            "start or end. Preserve meaning and facts; do not translate, summarize, "
+            "polish beyond ASR correction, merge, split, or invent content. Required "
+            'shape: {"corrections":[{"id":0,"corrected_text":"..."}]}.'
+        )
+        request_content = {
+            "detected_language": detected_language,
+            "required_ids": required_ids,
+            "global_context": dict(global_context),
+            "previous_context": [
+                {"text": item["text"]} for item in previous_context
+            ],
+            "current_batch": current_batch,
+            "next_context": [{"text": item["text"]} for item in next_context],
+        }
+        content = self._request(prompt, request_content, "transcript correction retry")
         return self._parse_corrections(content)
 
     def build_global_context(
@@ -174,6 +225,8 @@ class DeepSeekTranscriptCorrector:
                 {"role": "user", "content": json.dumps(request_content, ensure_ascii=False)},
             ],
         }
+        if operation in {"transcript correction", "transcript correction retry"}:
+            payload["temperature"] = 0
         response: Any | None = None
         try:
             response = self.session.post(
@@ -186,8 +239,30 @@ class DeepSeekTranscriptCorrector:
                 timeout=self.REQUEST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+            try:
+                response_payload = response.json()
+            except (TypeError, ValueError) as exc:
+                raise TranscriptCorrectionError(
+                    f"DeepSeek {operation} response body is not valid JSON."
+                ) from exc
+            try:
+                choices = response_payload["choices"]
+                if not isinstance(choices, list) or not choices:
+                    raise KeyError("choices")
+                message = choices[0]["message"]
+                content = message["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise TranscriptCorrectionError(
+                    f"DeepSeek {operation} response is missing choices[0].message.content."
+                ) from exc
+            if not isinstance(content, str) or not content.strip():
+                raise CorrectionResponseError(
+                    "DeepSeek correction response content is empty."
+                )
+            return content
+        except TranscriptCorrectionError:
+            raise
+        except requests.RequestException as exc:
             status_code = getattr(response, "status_code", None)
             response_text = _redact_secret(
                 getattr(response, "text", ""), self.api_key
@@ -206,30 +281,85 @@ class DeepSeekTranscriptCorrector:
             ) from exc
 
     @staticmethod
-    def _normalize_json(content: Any) -> Any:
+    def _extract_balanced_object(content: str) -> str | None:
+        """Return the first complete JSON object without guessing or repairing fields."""
+        for start, character in enumerate(content):
+            if character != "{":
+                continue
+            depth = 0
+            in_string = False
+            escaped = False
+            for index in range(start, len(content)):
+                current = content[index]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif current == "\\":
+                        escaped = True
+                    elif current == '"':
+                        in_string = False
+                    continue
+                if current == '"':
+                    in_string = True
+                elif current == "{":
+                    depth += 1
+                elif current == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = content[start : index + 1]
+                        try:
+                            json.loads(candidate)
+                        except json.JSONDecodeError:
+                            break
+                        return candidate
+        return None
+
+    @classmethod
+    def _parse_correction_response(cls, content: Any) -> Any:
+        """Parse direct, fenced, or explanation-wrapped JSON without repairing data."""
         if not isinstance(content, str) or not content.strip():
-            raise ValueError("DeepSeek returned empty transcript correction content.")
-        normalized = content.strip()
-        if normalized.startswith("```"):
-            lines = normalized.splitlines()
-            normalized = "\n".join(lines[1:-1]).strip()
-        return json.loads(normalized)
+            raise CorrectionResponseError("DeepSeek correction response content is empty.")
+        candidates = [content, content.strip()]
+        fenced = re.fullmatch(
+            r"\s*```(?:json)?\s*(.*?)\s*```\s*", content, flags=re.DOTALL | re.IGNORECASE
+        )
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+        balanced = cls._extract_balanced_object(content)
+        if balanced:
+            candidates.append(balanced)
+        last_error: json.JSONDecodeError | None = None
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+        detail = "truncated" if last_error and last_error.pos >= len(last_error.doc) - 1 else "malformed"
+        raise CorrectionResponseError(
+            f"DeepSeek correction response contains {detail} JSON."
+        ) from last_error
 
     @classmethod
     def _parse_corrections(cls, content: Any) -> list[dict[str, Any]]:
         try:
-            parsed = CorrectionBatch.model_validate(cls._normalize_json(content))
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-            raise TranscriptCorrectionError(
-                "DeepSeek returned invalid correction JSON."
+            parsed = CorrectionBatch.model_validate(cls._parse_correction_response(content))
+        except CorrectionResponseError:
+            raise
+        except ValidationError as exc:
+            raise CorrectionResponseError(
+                "DeepSeek correction response has an invalid JSON schema."
             ) from exc
         return [segment.model_dump() for segment in parsed.corrections]
 
     @classmethod
     def _parse_global_context(cls, content: Any) -> dict[str, Any]:
         try:
-            parsed = TranscriptGlobalContext.model_validate(cls._normalize_json(content))
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            parsed = TranscriptGlobalContext.model_validate(cls._parse_correction_response(content))
+        except (CorrectionResponseError, ValidationError) as exc:
             raise TranscriptCorrectionError(
                 "DeepSeek returned invalid global transcript context JSON."
             ) from exc
@@ -258,6 +388,20 @@ def validate_correction_batch(
         raise TranscriptCorrectionError("Correction changed segment order.")
     if any(not text for text in texts):
         raise TranscriptCorrectionError("Correction returned empty corrected_text.")
+
+
+def _is_retryable_output_error(exc: Exception) -> bool:
+    """Return whether one fresh model response can safely retry strict validation."""
+    return isinstance(exc, CorrectionResponseError) or (
+        isinstance(exc, TranscriptCorrectionError) and str(exc) in {
+        "Invalid corrected segment objects.",
+        "Correction may return only id and corrected_text.",
+        "Correction returned duplicate segment ids.",
+        "Correction returned mismatched segment ids.",
+        "Correction changed segment order.",
+        "Correction returned empty corrected_text.",
+        }
+    )
 
 
 def _prepare_segments(
@@ -325,6 +469,8 @@ def correct_transcript_with_metadata(
                 "total_segments": len(prepared),
                 "batches": batch_count,
                 "failed_batches": 0,
+                "retry_batches": 0,
+                "retry_successes": 0,
                 "zero_change_warning": False,
                 "error": None,
             },
@@ -333,6 +479,8 @@ def correct_transcript_with_metadata(
     errors: list[str] = []
     global_context_warning: str | None = None
     failed_batches = 0
+    retry_batches = 0
+    retry_successes = 0
     corrected_by_id = dict(raw_by_id)
     try:
         provider = corrector or DeepSeekTranscriptCorrector()
@@ -366,15 +514,54 @@ def correct_transcript_with_metadata(
                 "%s batch %d/%d sending...", LOG_PREFIX, batch_index, batch_count
             )
             try:
-                corrected = provider.correct_batch(
-                    language,
-                    current,
-                    previous,
-                    next_items,
-                    global_transcript,
-                    global_context,
-                )
-                validate_correction_batch(current, corrected)
+                try:
+                    corrected = provider.correct_batch(
+                        language,
+                        current,
+                        previous,
+                        next_items,
+                        global_transcript,
+                        global_context,
+                    )
+                    validate_correction_batch(current, corrected)
+                except Exception as output_error:
+                    if not _is_retryable_output_error(output_error):
+                        raise
+                    retry_batches += 1
+                    logger.warning(
+                        "%s batch %d/%d invalid model output; retrying: %s",
+                        LOG_PREFIX,
+                        batch_index,
+                        batch_count,
+                        output_error,
+                    )
+                    try:
+                        corrected = provider.retry_correction_batch(
+                            language,
+                            current,
+                            previous,
+                            next_items,
+                            global_context,
+                        )
+                        validate_correction_batch(current, corrected)
+                        retry_successes += 1
+                        logger.info(
+                            "%s batch %d/%d retry success",
+                            LOG_PREFIX,
+                            batch_index,
+                            batch_count,
+                        )
+                    except Exception as retry_error:
+                        logger.error(
+                            "%s batch %d/%d retry FAILED: %s",
+                            LOG_PREFIX,
+                            batch_index,
+                            batch_count,
+                            retry_error,
+                        )
+                        raise TranscriptCorrectionError(
+                            f"{output_error}; retry failed: {retry_error}"
+                        ) from retry_error
                 changed = 0
                 for item in corrected:
                     text = str(item["corrected_text"]).strip()
@@ -396,6 +583,12 @@ def correct_transcript_with_metadata(
                 message = f"batch {batch_index}/{batch_count}: {exc}"
                 errors.append(message)
                 logger.error("%s batch %d/%d FAILED: %s", LOG_PREFIX, batch_index, batch_count, exc)
+                logger.warning(
+                    "%s batch %d/%d fallback to raw/corrected baseline",
+                    LOG_PREFIX,
+                    batch_index,
+                    batch_count,
+                )
     except Exception as exc:
         failed_batches = batch_count
         errors.append(str(exc))
@@ -415,10 +608,12 @@ def correct_transcript_with_metadata(
     fallback = failed_batches > 0
     logger.info("%s completed", LOG_PREFIX)
     logger.info(
-        "%s changed=%d/%d fallback=%s",
+        "%s changed=%d/%d retry_batches=%d retry_successes=%d fallback=%s",
         LOG_PREFIX,
         changed_segments,
         len(prepared),
+        retry_batches,
+        retry_successes,
         str(fallback).lower(),
     )
     return TranscriptCorrectionResult(
@@ -432,6 +627,8 @@ def correct_transcript_with_metadata(
             "total_segments": len(prepared),
             "batches": batch_count,
             "failed_batches": failed_batches,
+            "retry_batches": retry_batches,
+            "retry_successes": retry_successes,
             "zero_change_warning": zero_change_warning,
             "error": (
                 "; ".join(errors)

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 
 import { SUPPORTED_LANGUAGES } from "../languages";
+import { generationButtonLabel } from "../regeneration";
 
 function UploadIcon() {
   return (
@@ -54,6 +55,8 @@ export default function UploadPanel({
   onSubmit,
   targetLanguage,
   onTargetLanguageChange,
+  workspaceVideoName = "",
+  hasWorkspace = false,
 }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -68,7 +71,7 @@ export default function UploadPanel({
         <span className="file-rule">MP4 · 最大 2 GB</span>
       </div>
 
-      {!file ? (
+      {!file && !workspaceVideoName ? (
         <button
           className={`dropzone ${dragging ? "is-dragging" : ""}`}
           type="button"
@@ -99,8 +102,8 @@ export default function UploadPanel({
         <div className="selected-file">
           <span className="file-icon"><FilmIcon /></span>
           <span className="file-information">
-            <strong>{file.name}</strong>
-            <span>{formatFileSize(file.size)} · MP4 video</span>
+            <strong>{file?.name || workspaceVideoName}</strong>
+            <span>{file ? `${formatFileSize(file.size)} · MP4 video` : "已恢复的字幕工作区"}</span>
           </span>
           <button
             className="remove-file"
@@ -146,13 +149,13 @@ export default function UploadPanel({
         </select>
       </label>
 
-      <button className="generate-button" type="submit" disabled={!file || busy}>
+      <button className="generate-button" type="submit" disabled={(!file && !hasWorkspace) || busy}>
         <span>
           {status === "uploading"
             ? `正在上传 ${uploadProgress}%`
             : status === "processing"
               ? "正在生成双语字幕"
-              : "开始生成字幕"}
+              : generationButtonLabel(hasWorkspace)}
         </span>
         {busy ? <span className="button-spinner" aria-hidden="true" /> : <ArrowIcon />}
       </button>

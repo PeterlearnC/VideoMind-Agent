@@ -100,6 +100,19 @@ class VideoSummaryAgentTests(unittest.TestCase):
         self.assertIn("correct", prompt)
         self.assertNotIn("wrong", prompt)
 
+    def test_prefers_human_edited_transcript(self) -> None:
+        session = FakeSession()
+        agent = VideoSummaryAgent(api_key="test-key", session=session)
+        agent.summarize([{
+            "start": 0, "corrected_text": "AI baseline",
+            "translated_text": "AI translation",
+            "edited_source_text": "Human source",
+            "edited_translated_text": "Human translation",
+        }])
+        prompt = session.requests[0]["json"]["messages"][1]["content"]
+        self.assertIn("Human source / Human translation", prompt)
+        self.assertNotIn("AI baseline", prompt)
+
 
 class VideoSummaryApiTests(unittest.IsolatedAsyncioTestCase):
     @patch("app.api.summary.get_subtitle", new_callable=AsyncMock)

@@ -14,6 +14,39 @@ from app.services.bilingual_subtitle_service import generate_bilingual_subtitle
 
 
 class BilingualSubtitleServiceTests(unittest.TestCase):
+    def test_regeneration_clears_edits_and_resets_editor_metadata(self) -> None:
+        source = [{"id": 1, "start": 0, "end": 2, "text": "new baseline"}]
+        corrected = [{
+            "id": 1, "start": 0, "end": 2,
+            "raw_text": "new baseline", "corrected_text": "corrected baseline",
+        }]
+        translated = [{"id": 1, "start": 0, "end": 2, "text": "新基线"}]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / "bilingual.srt"
+            output_path.with_suffix(".json").write_text(json.dumps({
+                "metadata": {"editor": {"edited_cues": 1, "version": 9}},
+                "subtitles": [{
+                    "id": 1,
+                    "edited_source_text": "old human source",
+                    "edited_translated_text": "old human translation",
+                }],
+            }), encoding="utf-8")
+            with patch(
+                "app.services.bilingual_subtitle_service.correct_transcript_with_fallback",
+                return_value=corrected,
+            ), patch(
+                "app.services.bilingual_subtitle_service.translation_service.translate_segments",
+                return_value=translated,
+            ):
+                generate_bilingual_subtitle(source, "en", output_path, "zh")
+
+            stored = json.loads(output_path.with_suffix(".json").read_text(encoding="utf-8"))
+            self.assertIsNone(stored["subtitles"][0]["edited_source_text"])
+            self.assertIsNone(stored["subtitles"][0]["edited_translated_text"])
+            self.assertEqual(stored["metadata"]["editor"], {
+                "edited_cues": 0, "last_modified": None, "version": 1,
+            })
+
     def test_translates_via_translation_service_and_writes_bilingual_srt(self) -> None:
         segments = [
             {
@@ -79,6 +112,11 @@ class BilingualSubtitleServiceTests(unittest.TestCase):
             structured = json.loads(
                 output_path.with_suffix(".json").read_text(encoding="utf-8")
             )
+            self.assertEqual(structured["metadata"]["workspace"], {
+                "video_name": None,
+                "source_language": "en",
+                "target_language": "zh",
+            })
             self.assertEqual(
                 structured["correction"],
                 {
@@ -90,6 +128,8 @@ class BilingualSubtitleServiceTests(unittest.TestCase):
                     "total_segments": 1,
                     "batches": 1,
                     "failed_batches": 0,
+                    "retry_batches": 0,
+                    "retry_successes": 0,
                     "zero_change_warning": False,
                     "error": None,
                 },
@@ -263,6 +303,7 @@ class BilingualSubtitleApiTests(unittest.IsolatedAsyncioTestCase):
             "en",
             expected_path,
             "zh",
+            "video.mp4",
         )
 
     @patch("app.api.bilingual_subtitle.transcribe_video", new_callable=AsyncMock)
@@ -320,6 +361,7 @@ class BilingualSubtitleApiTests(unittest.IsolatedAsyncioTestCase):
             "ja",
             expected_path,
             "ja",
+            "video.mp4",
         )
 
     @patch("app.api.bilingual_subtitle.generate_bilingual_subtitle")
@@ -341,7 +383,7 @@ class BilingualSubtitleApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["source_language"], "ja")
         self.assertEqual(result["target_language"], "en")
         generate_subtitle.assert_called_once_with(
-            segments, "ja", expected_path, "en"
+            segments, "ja", expected_path, "en", "video.mp4"
         )
 
     def test_new_and_existing_routes_are_registered(self) -> None:
