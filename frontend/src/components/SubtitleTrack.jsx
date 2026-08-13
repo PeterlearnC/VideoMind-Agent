@@ -9,6 +9,7 @@ export default function SubtitleTrack({
   fontSize = 20,
   position,
   backgroundOpacity,
+  layoutRevision = 0,
   onPositionChange,
 }) {
   const trackRef = useRef(null);
@@ -39,7 +40,7 @@ export default function SubtitleTrack({
 
   useEffect(() => {
     clampToFrame();
-  }, [activeSubtitle, displayMode, fontSize, clampToFrame]);
+  }, [activeSubtitle, displayMode, fontSize, layoutRevision, clampToFrame]);
 
   if (!enabled || !activeSubtitle) {
     return null;

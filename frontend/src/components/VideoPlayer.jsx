@@ -13,6 +13,7 @@ import {
   loadSubtitlePreferences,
   saveSubtitlePreferences,
 } from "../subtitlePreferences.js";
+import { isElementFullscreen, toggleElementFullscreen } from "../fullscreen.js";
 
 export default function VideoPlayer({
   src,
@@ -24,6 +25,7 @@ export default function VideoPlayer({
   targetLanguage,
 }) {
   const videoRef = useRef(null);
+  const videoStageRef = useRef(null);
   const clockRef = useRef(null);
   const playerTimeRef = useRef(null);
   const subtitlesRef = useRef(subtitles);
@@ -34,6 +36,8 @@ export default function VideoPlayer({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [displayMode, setDisplayMode] = useState("bilingual");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenLayoutRevision, setFullscreenLayoutRevision] = useState(0);
   const [subtitlePreferences, setSubtitlePreferences] = useState(
     loadSubtitlePreferences,
   );
@@ -42,6 +46,19 @@ export default function VideoPlayer({
   useEffect(() => {
     saveSubtitlePreferences(subtitlePreferences);
   }, [subtitlePreferences]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsFullscreen(isElementFullscreen(videoStageRef.current, document));
+      setFullscreenLayoutRevision((revision) => revision + 1);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("webkitfullscreenchange", syncFullscreenState);
+    };
+  }, []);
 
   useEffect(() => {
     publishedActiveCueIdRef.current = undefined;
@@ -141,6 +158,11 @@ export default function VideoPlayer({
 
   const handlePlay = useCallback(() => clockRef.current?.play(), []);
   const handlePause = useCallback(() => clockRef.current?.pause(), []);
+  const handleFullscreenToggle = useCallback(() => {
+    toggleElementFullscreen(videoStageRef.current, document).catch(() => {
+      // Unsupported or denied fullscreen must not interrupt media playback.
+    });
+  }, []);
 
   const activeSubtitle = useMemo(
     () => subtitles.find((cue) => String(cue.id) === activeCueId) || null,
@@ -160,57 +182,62 @@ export default function VideoPlayer({
         </div>
         <span ref={playerTimeRef} className="player-time">0.0s</span>
       </div>
-      <div className="video-frame">
-        <StableVideoElement
-          videoRef={videoRef}
-          src={src}
-          onTimeUpdate={handleTimeChange}
-          onSeeking={handleExplicitTimeChange}
-          onSeeked={handleExplicitTimeChange}
-          onLoadedMetadata={handleLoadedMetadata}
-          onRateChange={handleNativeRateChange}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onEnded={handlePause}
-        />
-        <SubtitleTrack
-          activeSubtitle={activeSubtitle}
+      <div ref={videoStageRef} className="video-stage">
+        <div className="video-frame">
+          <StableVideoElement
+            videoRef={videoRef}
+            src={src}
+            onTimeUpdate={handleTimeChange}
+            onSeeking={handleExplicitTimeChange}
+            onSeeked={handleExplicitTimeChange}
+            onLoadedMetadata={handleLoadedMetadata}
+            onRateChange={handleNativeRateChange}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            onEnded={handlePause}
+          />
+          <SubtitleTrack
+            activeSubtitle={activeSubtitle}
+            enabled={subtitlesEnabled}
+            displayMode={displayMode}
+            fontSize={subtitleFontSize}
+            position={subtitlePosition}
+            backgroundOpacity={backgroundOpacity}
+            layoutRevision={fullscreenLayoutRevision}
+            onPositionChange={(position) => setSubtitlePreferences((current) => ({
+              ...current,
+              position,
+            }))}
+          />
+        </div>
+        <SubtitleControl
           enabled={subtitlesEnabled}
           displayMode={displayMode}
           fontSize={subtitleFontSize}
-          position={subtitlePosition}
+          playbackRate={playbackRate}
+          isFullscreen={isFullscreen}
+          disabled={subtitles.length === 0}
+          onEnabledChange={setSubtitlesEnabled}
+          onDisplayModeChange={setDisplayMode}
           backgroundOpacity={backgroundOpacity}
-          onPositionChange={(position) => setSubtitlePreferences((current) => ({
+          onBackgroundOpacityChange={(backgroundOpacity) => setSubtitlePreferences((current) => ({
             ...current,
-            position,
+            backgroundOpacity,
           }))}
+          onResetPosition={() => setSubtitlePreferences((current) => ({
+            ...current,
+            position: { ...DEFAULT_SUBTITLE_POSITION },
+          }))}
+          onFontSizeChange={(fontSize) => setSubtitlePreferences((current) => ({
+            ...current,
+            fontSize,
+          }))}
+          onPlaybackRateChange={handlePlaybackRateChange}
+          onFullscreenToggle={handleFullscreenToggle}
+          sourceLanguage={sourceLanguage}
+          targetLanguage={targetLanguage}
         />
       </div>
-      <SubtitleControl
-        enabled={subtitlesEnabled}
-        displayMode={displayMode}
-        fontSize={subtitleFontSize}
-        playbackRate={playbackRate}
-        disabled={subtitles.length === 0}
-        onEnabledChange={setSubtitlesEnabled}
-        onDisplayModeChange={setDisplayMode}
-        backgroundOpacity={backgroundOpacity}
-        onBackgroundOpacityChange={(backgroundOpacity) => setSubtitlePreferences((current) => ({
-          ...current,
-          backgroundOpacity,
-        }))}
-        onResetPosition={() => setSubtitlePreferences((current) => ({
-          ...current,
-          position: { ...DEFAULT_SUBTITLE_POSITION },
-        }))}
-        onFontSizeChange={(fontSize) => setSubtitlePreferences((current) => ({
-          ...current,
-          fontSize,
-        }))}
-        onPlaybackRateChange={handlePlaybackRateChange}
-        sourceLanguage={sourceLanguage}
-        targetLanguage={targetLanguage}
-      />
       <p className="player-caption">
         {subtitles.length > 0
           ? `已加载 ${subtitles.length} 条${sourceLanguage === targetLanguage ? "单语" : "双语"}字幕，字幕会随播放进度实时切换。`

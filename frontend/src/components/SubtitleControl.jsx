@@ -7,6 +7,7 @@ export default function SubtitleControl({
   fontSize,
   playbackRate,
   backgroundOpacity,
+  isFullscreen = false,
   disabled = false,
   onEnabledChange,
   onDisplayModeChange,
@@ -14,6 +15,7 @@ export default function SubtitleControl({
   onPlaybackRateChange,
   onBackgroundOpacityChange,
   onResetPosition,
+  onFullscreenToggle,
   sourceLanguage,
   targetLanguage,
 }) {
@@ -112,6 +114,16 @@ export default function SubtitleControl({
           恢复默认
         </button>
       </div>
+
+      <button
+        type="button"
+        className="player-fullscreen-control"
+        aria-label={isFullscreen ? "退出全屏" : "全屏（字幕可见）"}
+        aria-pressed={isFullscreen}
+        onClick={onFullscreenToggle}
+      >
+        {isFullscreen ? "退出全屏" : "全屏（字幕可见）"}
+      </button>
     </div>
   );
 }
