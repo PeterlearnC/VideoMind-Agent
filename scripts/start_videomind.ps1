@@ -165,7 +165,7 @@ function Test-DeepSeekConfiguration {
     $envFile = Join-Path $BackendRoot ".env"
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
         Write-LauncherMessage "WARNING" "backend\.env not found. Copy backend\.env.example to backend\.env before using AI features."
-        return
+        return $false
     }
 
     $configured = $false
@@ -183,6 +183,22 @@ function Test-DeepSeekConfiguration {
         Write-Host "          Whisper/local playback may still work, but Transcript Correction,"
         Write-Host "          Translation, Summary and Q&A may be unavailable."
     }
+    return $configured
+}
+
+function Get-BackendEnvValue {
+    param([string]$Name)
+    $envFile = Join-Path $BackendRoot ".env"
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        return $null
+    }
+    foreach ($rawLine in Get-Content -LiteralPath $envFile -Encoding UTF8) {
+        $line = $rawLine.Trim()
+        if ($line -match ('^' + [regex]::Escape($Name) + '\s*=\s*(.*)$')) {
+            return $Matches[1].Trim().Trim('"').Trim("'")
+        }
+    }
+    return $null
 }
 
 Write-Host "================================================"
@@ -225,14 +241,39 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-LauncherMessage "OK" "FFmpeg and ffprobe available"
 
-Test-DeepSeekConfiguration
+$demoSetting = Get-BackendEnvValue "COMPETITION_DEMO_MODE"
+$competitionDemoMode = $demoSetting -match '^(1|true|yes|on)$'
+$deepSeekConfigured = Test-DeepSeekConfiguration
+if ($competitionDemoMode) {
+    Write-LauncherMessage "INFO" "Competition Demo Mode enabled. The preloaded workspace can run without a DeepSeek API Key."
+}
 
-$importArguments = @($pythonCommand.PrefixArguments) + @("-c", "import fastapi, uvicorn, whisper")
+$requiredImports = if ($competitionDemoMode -and -not $deepSeekConfigured) {
+    "import fastapi, uvicorn"
+} else {
+    "import fastapi, uvicorn, whisper"
+}
+$importArguments = @($pythonCommand.PrefixArguments) + @("-c", $requiredImports)
 & $pythonCommand.FilePath @importArguments 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Stop-WithError @("Backend dependencies are incomplete.", "Install the backend requirements and the project's Whisper package as described in README.md.")
+    Stop-WithError @("Backend dependencies are incomplete.", "Run install_dependencies.bat or install the dependencies described in DEMO_README.md.")
 }
 Write-LauncherMessage "OK" "Backend imports available"
+
+if ($competitionDemoMode -and -not $deepSeekConfigured) {
+    $whisperArguments = @($pythonCommand.PrefixArguments) + @("-c", "import whisper")
+    $whisperAvailable = $true
+    try {
+        & $pythonCommand.FilePath @whisperArguments 2>$null
+        $whisperAvailable = $LASTEXITCODE -eq 0
+    }
+    catch {
+        $whisperAvailable = $false
+    }
+    if (-not $whisperAvailable) {
+        Write-LauncherMessage "WARNING" "Whisper is not installed. The preloaded Demo still works; new video processing is unavailable."
+    }
+}
 
 if (-not (Test-Path -LiteralPath (Join-Path $FrontendRoot "node_modules") -PathType Container)) {
     Stop-WithError @("Frontend dependencies are not installed.", "Run:", "cd frontend", "npm install")
@@ -293,6 +334,7 @@ if ($backendReady -and $frontendReady) {
     Write-Host "VideoMind-Agent"
     Write-Host "Backend:  $BackendUrl"
     Write-Host "Frontend: $FrontendUrl"
+    Write-Host ("Mode:     {0}" -f $(if ($competitionDemoMode) { "Competition Demo" } else { "Normal" }))
     Write-Host "================================================"
     if (-not $NoBrowser) {
         Start-Process $FrontendUrl

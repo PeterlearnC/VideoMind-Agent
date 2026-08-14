@@ -4,7 +4,7 @@
 
 > AI-powered video understanding and bilingual subtitle workspace.
 
-[![Release](https://img.shields.io/badge/release-v0.7.2-244F3B)](https://github.com/PeterlearnC/VideoMind-Agent/releases/tag/v0.7.2)
+[![Release](https://img.shields.io/badge/release-v0.7.4-244F3B)](https://github.com/PeterlearnC/VideoMind-Agent/releases/tag/v0.7.4)
 [![Frontend](https://img.shields.io/badge/frontend-React%20%2B%20Vite-3D6B53)](#-tech-stack)
 [![Backend](https://img.shields.io/badge/backend-FastAPI-3D6B53)](#-tech-stack)
 [![Status](https://img.shields.io/badge/status-Competition%20Demo-6C746D)](#-competition--status)
@@ -437,13 +437,12 @@ VideoMind-Agent/
 
 ## 🏷️ Current Release
 
-### VideoMind-Agent v0.7.2
+### VideoMind-Agent v0.7.4
 
 **Competition demo stable release**
 
-- Tag：[`v0.7.2`](https://github.com/PeterlearnC/VideoMind-Agent/releases/tag/v0.7.2)
-- Commit：`11ef974`
-- Commit message：`fix: preserve custom subtitles in fullscreen mode`
+- Tag：[`v0.7.4`](https://github.com/PeterlearnC/VideoMind-Agent/releases/tag/v0.7.4)
+- Release scope：Competition Demo distribution mode
 
 ### Release milestones verified from Git history
 
@@ -456,6 +455,8 @@ VideoMind-Agent/
 | v0.6.1 | Multilingual subtitle pipeline、Transcript Correction 与 ASR proofreading improvements |
 | v0.7.1 | Performance Metrics、Translation reliability、字幕拖动/背景/偏好设置 |
 | v0.7.2 | Custom fullscreen subtitle support |
+| v0.7.3 | Windows one-click launcher and demo startup workflow |
+| v0.7.4 | Preloaded Competition Demo Mode and audited distribution package |
 
 > Git 历史中没有独立的 `v0.6.0` tag；多语言和 Transcript Correction 的已标记稳定节点是 `v0.6.1`。
 

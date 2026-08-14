@@ -5,6 +5,10 @@ import VideoPlayer from "./components/VideoPlayer";
 import SummaryPanel from "./components/SummaryPanel";
 import VideoQAPanel from "./components/VideoQAPanel";
 import SubtitleEditor from "./components/SubtitleEditor";
+import {
+  competitionDemoCloudAiBlocked,
+  normalizeCompetitionDemo,
+} from "./competitionDemo";
 import { languageLabel } from "./languages";
 import {
   confirmRegeneration,
@@ -173,11 +177,13 @@ export default function App() {
   const [workspaceRestored, setWorkspaceRestored] = useState(false);
   const [workspaceVideoName, setWorkspaceVideoName] = useState("");
   const [editorReloadToken, setEditorReloadToken] = useState(0);
+  const [competitionDemo, setCompetitionDemo] = useState(() => normalizeCompetitionDemo(null));
   const playerRegionRef = useRef(null);
   const generationGateRef = useRef(createRequestGate());
 
   const busy = status === "uploading" || status === "processing";
   const hasWorkspace = Boolean(videoId && subtitles.length);
+  const demoCloudAiBlocked = competitionDemoCloudAiBlocked(competitionDemo);
 
   function confirmDiscardDrafts() {
     if (!subtitleEditorDirtyCount) return true;
@@ -213,11 +219,32 @@ export default function App() {
     let cancelled = false;
     async function restoreWorkspace() {
       let saved;
+      let detectedDemo = normalizeCompetitionDemo(null);
       try {
-        saved = JSON.parse(localStorage.getItem(ACTIVE_WORKSPACE_KEY) || "null");
+        const demoResponse = await fetch("/api/competition-demo/status", { cache: "no-store" });
+        if (demoResponse.ok) {
+          detectedDemo = normalizeCompetitionDemo(await demoResponse.json());
+          if (detectedDemo.enabled) {
+            saved = {
+              videoId: detectedDemo.workspace.video_id,
+              videoName: detectedDemo.workspace.video_name,
+              sourceLanguage: detectedDemo.workspace.source_language,
+              targetLanguage: detectedDemo.workspace.target_language,
+            };
+            localStorage.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify(saved));
+          }
+        }
       } catch {
-        localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+        // Older/local backends without Demo Mode continue with normal restore.
       }
+      if (!saved) {
+        try {
+          saved = JSON.parse(localStorage.getItem(ACTIVE_WORKSPACE_KEY) || "null");
+        } catch {
+          localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+        }
+      }
+      if (!cancelled) setCompetitionDemo(detectedDemo);
       if (!saved?.videoId || typeof saved.videoId !== "string") {
         if (!cancelled) setWorkspaceRestoring(false);
         return;
@@ -265,6 +292,11 @@ export default function App() {
 
   function selectFile(candidate) {
     if (!candidate || busy) {
+      return;
+    }
+    if (demoCloudAiBlocked) {
+      setStatus("error");
+      setErrorMessage(competitionDemo.message);
       return;
     }
     if (!confirmDiscardDrafts()) return;
@@ -316,6 +348,11 @@ export default function App() {
     if (busy) {
       return;
     }
+    if (demoCloudAiBlocked) {
+      setStatus("error");
+      setErrorMessage(competitionDemo.message);
+      return;
+    }
     if (!confirmDiscardDrafts()) return;
     setFile(null);
     setResult(null);
@@ -337,6 +374,11 @@ export default function App() {
   async function handleSubmit(event) {
     event.preventDefault();
     if ((!file && !hasWorkspace) || busy) {
+      return;
+    }
+    if (demoCloudAiBlocked) {
+      setStatus("error");
+      setErrorMessage(competitionDemo.message);
       return;
     }
     if (hasWorkspace && !confirmRegeneration(subtitleEditorDirtyCount, window.confirm)) return;
@@ -443,6 +485,17 @@ export default function App() {
           Local workflow
         </span>
       </header>
+
+      {competitionDemo.enabled && (
+        <aside className="competition-demo-banner" aria-label="Competition Demo Mode">
+          <strong>{competitionDemo.label}</strong>
+          <span>
+            当前加载预置 Demo。{competitionDemo.apiKeyConfigured
+              ? "已配置 DeepSeek API Key，可处理新的 AI 请求。"
+              : "配置 DeepSeek API Key 后可处理新视频和实时 AI 请求。"}
+          </span>
+        </aside>
+      )}
 
       <section className="hero">
         <div className="eyebrow">
@@ -581,9 +634,22 @@ export default function App() {
         outputLanguage={resolvedTargetLanguage || "zh"}
         subtitleRevision={subtitleRevision}
         workspaceRestored={workspaceRestored}
+        preloadedSummary={competitionDemo.summary}
+        competitionDemoMode={competitionDemo.enabled}
+        cloudAiAvailable={!demoCloudAiBlocked}
+        demoModeMessage={competitionDemo.message}
       />
 
-      <VideoQAPanel videoId={videoId} onSeekToTime={handleSeekToTime} subtitleRevision={subtitleRevision} workspaceRestored={workspaceRestored} />
+      <VideoQAPanel
+        videoId={videoId}
+        onSeekToTime={handleSeekToTime}
+        subtitleRevision={subtitleRevision}
+        workspaceRestored={workspaceRestored}
+        preloadedHistory={competitionDemo.qaHistory}
+        competitionDemoMode={competitionDemo.enabled}
+        cloudAiAvailable={!demoCloudAiBlocked}
+        demoModeMessage={competitionDemo.message}
+      />
 
       <footer>
           <span>VideoMind Agent · V0.7.1</span>

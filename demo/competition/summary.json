@@ -1,0 +1,19 @@
+{
+  "video_id": "competition-demo",
+  "title": "液压制动系统简介",
+  "overview": "视频解释了液压制动系统的工作方式。",
+  "key_points": [
+    "压力通过制动液传递",
+    "制动力作用于车轮"
+  ],
+  "chapters": [
+    {
+      "start": 0.0,
+      "end": 8.0,
+      "timestamp": "00:00:00",
+      "title": "工作原理",
+      "summary": "介绍压力传递过程。"
+    }
+  ],
+  "keywords": ["液压", "制动"]
+}

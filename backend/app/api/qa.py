@@ -12,6 +12,7 @@ from app.agents.video_qa_agent import (
 )
 from app.api.subtitle import get_subtitle
 from app.services.performance_metrics import observe_operation
+from app.config.competition_demo import require_cloud_ai_available
 
 
 router = APIRouter(tags=["qa"])
@@ -109,6 +110,7 @@ async def answer_video_question(
     request: VideoQARequest,
 ) -> VideoQAResponse:
     """Answer a question using only the requested video's subtitle track."""
+    require_cloud_ai_available()
     subtitle_payload = await get_subtitle(video_id)
     cues = subtitle_payload["subtitles"]
     if not cues:

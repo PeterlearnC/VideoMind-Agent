@@ -1,0 +1,9 @@
+{
+  "fixture_name": "VideoMind-Agent Competition Demo Fixture",
+  "preloaded": true,
+  "live_ai": false,
+  "content_source": "Existing repository test fixtures in backend/tests/test_video_summary.py and backend/tests/test_video_qa.py",
+  "video_source": "Project-generated FFmpeg test pattern with silent audio; no third-party footage or audio",
+  "redistribution": "Created for this project and safe to redistribute with the Competition Demo package",
+  "privacy": "Contains no user data, API requests, raw provider responses, prompts, credentials, or personal paths"
+}

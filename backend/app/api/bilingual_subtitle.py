@@ -20,6 +20,7 @@ from app.services.performance_metrics import (
     create_run,
     reset_active_run,
 )
+from app.config.competition_demo import require_cloud_ai_available
 
 
 router = APIRouter(tags=["subtitle"])
@@ -31,6 +32,7 @@ async def generate_bilingual_subtitle_api(
     target_language: Annotated[str | None, Form()] = None,
 ) -> dict[str, str]:
     """Detect, transcribe, translate, and create a bilingual SRT."""
+    require_cloud_ai_available()
     metrics = create_run(
         video_id="bilingual",
         video_name=getattr(file, "filename", None),

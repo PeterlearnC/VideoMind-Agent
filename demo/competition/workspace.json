@@ -1,0 +1,77 @@
+{
+  "source_language": "en",
+  "target_language": "zh",
+  "correction": {
+    "enabled": true,
+    "fallback": false,
+    "changed_segments": 0,
+    "total_segments": 3
+  },
+  "metadata": {
+    "workspace": {
+      "video_name": "competition-demo.mp4",
+      "source_language": "en",
+      "target_language": "zh"
+    },
+    "editor": {
+      "edited_cues": 0,
+      "last_modified": null,
+      "version": 1
+    },
+    "competition_demo": {
+      "preloaded": true,
+      "live_ai": false,
+      "fixture_source": "existing repository automated test fixtures"
+    }
+  },
+  "subtitles": [
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 4.0,
+      "raw_text": "Hydraulic pressure applies the brakes.",
+      "corrected_text": "Hydraulic pressure applies the brakes.",
+      "translations": {"zh": "液压压力启动制动器。"},
+      "translated_text": "液压压力启动制动器。",
+      "translation_validation_warning": false,
+      "translation_validation_warning_reason": null,
+      "edited_source_text": null,
+      "edited_translated_text": null,
+      "source": "Hydraulic pressure applies the brakes.",
+      "translation": "液压压力启动制动器。",
+      "source_text": "Hydraulic pressure applies the brakes."
+    },
+    {
+      "id": 1,
+      "start": 4.0,
+      "end": 8.0,
+      "raw_text": "Pressure is transmitted through brake fluid.",
+      "corrected_text": "Pressure is transmitted through brake fluid.",
+      "translations": {"zh": "压力通过制动液传递。"},
+      "translated_text": "压力通过制动液传递。",
+      "translation_validation_warning": false,
+      "translation_validation_warning_reason": null,
+      "edited_source_text": null,
+      "edited_translated_text": null,
+      "source": "Pressure is transmitted through brake fluid.",
+      "translation": "压力通过制动液传递。",
+      "source_text": "Pressure is transmitted through brake fluid."
+    },
+    {
+      "id": 2,
+      "start": 11.0,
+      "end": 15.0,
+      "raw_text": "The vehicle uses a hydraulic braking system.",
+      "corrected_text": "The vehicle uses a hydraulic braking system.",
+      "translations": {"zh": "车辆采用液压制动系统。"},
+      "translated_text": "车辆采用液压制动系统。",
+      "translation_validation_warning": false,
+      "translation_validation_warning_reason": null,
+      "edited_source_text": null,
+      "edited_translated_text": null,
+      "source": "The vehicle uses a hydraulic braking system.",
+      "translation": "车辆采用液压制动系统。",
+      "source_text": "The vehicle uses a hydraulic braking system."
+    }
+  ]
+}

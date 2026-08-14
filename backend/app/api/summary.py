@@ -13,6 +13,7 @@ from app.agents.video_summary_agent import (
 )
 from app.api.subtitle import get_subtitle
 from app.services.performance_metrics import observe_operation
+from app.config.competition_demo import require_cloud_ai_available
 
 
 router = APIRouter(tags=["summary"])
@@ -105,6 +106,7 @@ async def generate_video_summary(
     request: SummaryRequest,
 ) -> VideoSummary:
     """Create a structured AI summary from a generated subtitle track."""
+    require_cloud_ai_available()
     subtitle_payload = await get_subtitle(video_id)
     try:
         with observe_operation("summary", video_id) as perf:

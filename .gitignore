@@ -17,6 +17,7 @@ env/
 /backend/.env
 .env.*
 !.env.example
+!backend/.env.competition.example
 
 # Frontend dependencies and builds
 node_modules/
@@ -36,6 +37,9 @@ Thumbs.db
 # Local launcher process IDs
 .runtime/
 
+# Generated competition distribution artifacts
+release/
+
 # Generated/runtime media data
 data/videos/*
 data/audio/*
@@ -50,6 +54,7 @@ data/subtitles/*
 *.mp4
 *.mov
 *.avi
+!demo/competition/competition-demo.mp4
 # Local debugging files
 correction-result*.json
 test_correction.py

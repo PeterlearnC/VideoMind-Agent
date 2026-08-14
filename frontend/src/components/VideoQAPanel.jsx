@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
-export default function VideoQAPanel({ videoId, onSeekToTime, subtitleRevision = 0, workspaceRestored = false }) {
+export default function VideoQAPanel({
+  videoId,
+  onSeekToTime,
+  subtitleRevision = 0,
+  workspaceRestored = false,
+  preloadedHistory = [],
+  competitionDemoMode = false,
+  cloudAiAvailable = true,
+  demoModeMessage = "",
+}) {
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState("idle");
   const [history, setHistory] = useState([]);
@@ -14,11 +23,11 @@ export default function VideoQAPanel({ videoId, onSeekToTime, subtitleRevision =
   useEffect(() => {
     setQuestion("");
     setStatus("idle");
-    setHistory([]);
+    setHistory(preloadedHistory);
     setErrorMessage("");
     requestVersionRef.current += 1;
     nextTurnIdRef.current = 1;
-  }, [videoId]);
+  }, [videoId, preloadedHistory]);
 
   function clearHistory() {
     setHistory([]);
@@ -98,8 +107,12 @@ export default function VideoQAPanel({ videoId, onSeekToTime, subtitleRevision =
         )}
       </div>
 
-      {workspaceRestored && (
+      {workspaceRestored && !competitionDemoMode && (
         <p className="linked-content-notice">工作区已恢复，历史问答未持久化。</p>
+      )}
+
+      {competitionDemoMode && !cloudAiAvailable && (
+        <p className="linked-content-notice">{demoModeMessage}</p>
       )}
 
       {subtitleRevision > 0 && (
@@ -115,12 +128,12 @@ export default function VideoQAPanel({ videoId, onSeekToTime, subtitleRevision =
             value={question}
             maxLength={1000}
             placeholder="例如：这个视频什么时候介绍了刹车系统？"
-            disabled={status === "loading"}
+            disabled={status === "loading" || !cloudAiAvailable}
             onChange={(event) => setQuestion(event.target.value)}
           />
           <button
             type="submit"
-            disabled={!question.trim() || status === "loading"}
+            disabled={!question.trim() || status === "loading" || !cloudAiAvailable}
           >
             {status === "loading" ? "回答中…" : "发送问题"}
           </button>

@@ -17,6 +17,10 @@ export default function SummaryPanel({
   outputLanguage = "zh",
   subtitleRevision = 0,
   workspaceRestored = false,
+  preloadedSummary = null,
+  competitionDemoMode = false,
+  cloudAiAvailable = true,
+  demoModeMessage = "",
 }) {
   const [status, setStatus] = useState("idle");
   const [summary, setSummary] = useState(null);
@@ -24,11 +28,12 @@ export default function SummaryPanel({
   const [generatedRevision, setGeneratedRevision] = useState(0);
 
   useEffect(() => {
-    setStatus("idle");
-    setSummary(null);
+    const preloaded = preloadedSummary?.video_id === videoId ? preloadedSummary : null;
+    setStatus(preloaded ? "success" : "idle");
+    setSummary(preloaded);
     setErrorMessage("");
     setGeneratedRevision(0);
-  }, [videoId]);
+  }, [videoId, preloadedSummary]);
 
   useEffect(() => {
     if (subtitleRevision === 0) setGeneratedRevision(0);
@@ -73,12 +78,21 @@ export default function SummaryPanel({
         <button
           className="summary-generate"
           type="button"
-          disabled={status === "loading"}
+          disabled={status === "loading" || !cloudAiAvailable}
           onClick={generateSummary}
+          title={!cloudAiAvailable ? demoModeMessage : undefined}
         >
-          {status === "loading" ? "Agent 分析中…" : summary ? "重新生成" : "生成摘要"}
+          {status === "loading"
+            ? "Agent 分析中…"
+            : competitionDemoMode && !cloudAiAvailable
+              ? "预置摘要"
+              : summary ? "重新生成" : "生成摘要"}
         </button>
       </div>
+
+      {competitionDemoMode && !cloudAiAvailable && (
+        <p className="linked-content-notice">{demoModeMessage}</p>
+      )}
 
       {subtitleRevision > generatedRevision && (
         <p className="linked-content-notice">字幕已修改，重新生成摘要后将使用最新人工字幕。</p>

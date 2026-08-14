@@ -1709,6 +1709,8 @@ footer > span:last-child {
 }
 .workspace { position: relative; }
 .workspace-restoring { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; border-radius: inherit; background: color-mix(in srgb, var(--background, #0b0d10) 88%, transparent); color: var(--text); }
+.competition-demo-banner { display: flex; align-items: center; gap: 0.9rem; margin: 0.35rem 0 1rem; padding: 0.7rem 0.9rem; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 0.75rem; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--muted); font-size: 0.88rem; }
+.competition-demo-banner strong { color: var(--text); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 
 .editor-heading,
 .editor-heading > div:first-child,

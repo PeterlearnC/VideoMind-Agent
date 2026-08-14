@@ -11,6 +11,7 @@ from app.services.translation_service import (
     translate_segments,
 )
 from app.config.languages import require_supported_language
+from app.config.competition_demo import require_cloud_ai_available
 
 
 router = APIRouter(tags=["translation"])
@@ -39,6 +40,7 @@ async def translate_subtitle(
     target_language: str = Query(default="zh"),
 ) -> list[TranslatedSegment]:
     """Translate Whisper segments while preserving their original timeline."""
+    require_cloud_ai_available()
     source_segments = [segment.model_dump() for segment in segments]
     try:
         source_language = require_supported_language(source_language, "source")
