@@ -21,7 +21,7 @@ VideoMind-Agent 将 **语音识别 → 字幕校正 → 双语翻译 → 人工�
 
 ### Video Upload
 
-![Video upload workspace](docs/images/video_upload.png)
+![Video upload workspace](docs/images/video_uploading.png)
 
 ### Bilingual Subtitle Player
 
