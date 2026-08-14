@@ -19,19 +19,33 @@ VideoMind-Agent 将 **语音识别 → 字幕校正 → 双语翻译 → 人工�
 
 ## 🖼️ Demo
 
-### Video Upload
+完整 Demo 工作流：Video Upload → Upload Complete → Bilingual Subtitle Playback → Subtitle Editing → AI Video Summary → Grounded Video Q&A。
+
+### 1. Video Upload
 
 ![Video upload workspace](docs/images/video_uploading.png)
 
-### Bilingual Subtitle Player
+### 2. Video Uploaded
+
+![Uploaded video workspace](docs/images/video_uploaded.png)
+
+### 3. Bilingual Subtitle Player
 
 ![Bilingual subtitle player](docs/images/demo_player.png)
 
-### AI Video Summary
+### 4. Subtitle Editor
+
+![Subtitle editor](docs/images/demo_subtitle%20editor.png)
+
+### 5. AI Video Summary
 
 ![AI video summary](docs/images/demo_summary.png)
 
-> 仓库当前保留了上传、播放器和 Summary 三张真实 Demo 截图。Subtitle Editor 与 Grounded Q&A 可在本地启动后直接体验；参赛产品说明见 [`docs/competition/`](docs/competition/README.md)。
+### 6. Grounded Video Q&A
+
+![Grounded video Q&A](docs/images/demo_Q%26A.png)
+
+> 完整可编辑参赛产品说明见 [`docs/competition/`](docs/competition/README.md)。
 
 ---
 
