@@ -1,7 +1,7 @@
 # 产品 Demo 链接或安装包
 
 产品 Demo 下载：
-<GITHUB_RELEASE_URL_TO_BE_ADDED>
+https://github.com/PeterlearnC/VideoMind-Agent/releases/tag/v0.7.4
 
 发行版本：
 VideoMind-Agent v0.7.4 Competition Demo
